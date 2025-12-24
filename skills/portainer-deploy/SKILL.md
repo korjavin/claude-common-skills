@@ -46,9 +46,11 @@ If uncertain, ask the user:
 1. **Main branch**: "What is your main branch name? (main/master)"
 2. **Services**: "Is this a single service or multi-service application?"
 3. **Traefik**: "Do you want to use Traefik reverse proxy with automatic HTTPS? (yes/no)"
-4. **Domain**: If Traefik - "What domain will you use? (e.g., example.com)"
-5. **Network**: If Traefik - "What is your Traefik network name? (default: traefik_network)"
+4. **Domain**: If Traefik - "What domain will you use? (can be configured via Portainer env vars)"
+5. **Network**: If Traefik - "What is your Traefik network name? (can be configured via Portainer env vars)"
 6. **Webhooks**: "How many Portainer stacks will you deploy? (usually 1, or 2+ for multi-stack)"
+
+**Note:** Domain and network name can be provided via Portainer environment variables for flexibility across environments.
 
 ### 3. Generate or Update GitHub Actions Workflow
 
@@ -71,13 +73,15 @@ Create `.github/workflows/deploy.yml`:
 
 ### 4. Generate or Update docker-compose.yml
 
+**Important:** Always use the actual repository path from `git remote get-url origin` instead of placeholder text.
+
 **For single service with Traefik:**
 ```yaml
 version: "3.8"
 
 services:
   app:
-    image: ghcr.io/OWNER/REPO:latest
+    image: ghcr.io/owner/repo:latest  # Use actual owner/repo from git remote
     container_name: app-name
     networks:
       - traefik_network
@@ -95,6 +99,7 @@ services:
 
 networks:
   traefik_network:
+    name: ${NETWORK_NAME:-traefik_network}  # Allow network name override via env var
     external: true
 ```
 
@@ -125,8 +130,10 @@ networks:
 **If files don't exist:**
 - Create new files from templates
 - Customize based on project structure
+- Get actual repository owner/repo from: `git remote get-url origin`
+- Use actual values in docker-compose.yml image field
 
-### 6. Remind About Secrets
+### 6. Remind About Secrets and Environment Variables
 
 After generating files, remind the user:
 
@@ -146,6 +153,11 @@ To get webhook URL from Portainer:
 1. Open your stack in Portainer
 2. Click on "Webhooks"
 3. Copy the webhook URL
+
+Portainer Environment Variables to Configure:
+- HOSTNAME: Your domain name (e.g., bot.example.com)
+- NETWORK_NAME: Traefik network name (optional, defaults to traefik_network)
+- Plus any application-specific environment variables
 ```
 
 ## Project Examples
