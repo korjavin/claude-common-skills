@@ -59,28 +59,39 @@ Create `.github/workflows/deploy.yml`:
 **Key elements:**
 - Trigger on push to main branch + workflow_dispatch
 - Login to ghcr.io using GITHUB_TOKEN
-- Build and push Docker image with tags: `latest` and `${{ github.sha }}`
-- Update docker-compose.yml with new image tag using sed
+- Build and push Docker image with **SHA tag ONLY** (NOT latest): `${{ github.sha }}`
+- Checkout or create `deploy` branch using `git checkout -B deploy`
+- Update docker-compose.yml with SHA tag using sed
 - Commit changes to `deploy` branch
+- Force push to `deploy` branch with `--force`
 - Trigger Portainer webhook(s)
+
+**CRITICAL:** Never use `:latest` tag in production deployments. Always use specific SHA tags for traceability.
 
 **Template reference:** See `templates/github-workflow.yml`
 
 **Important notes:**
-- Use `ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}` for image name
+- Use `ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}` for image tag
+- The main branch keeps `:latest` as a placeholder (will be replaced in deploy branch)
+- Portainer should watch the `deploy` branch, NOT the main branch
 - Update ALL docker-compose files if multiple exist (e.g., main + bot-hoster)
 - Add multiple webhook steps if deploying to multiple Portainer stacks
+- Use `--force` when pushing to deploy branch (it's a CI-only branch)
 
 ### 4. Generate or Update docker-compose.yml
 
-**Important:** Always use the actual repository path from `git remote get-url origin` instead of placeholder text.
+**Important:**
+- Always use the actual repository path from `git remote get-url origin` instead of placeholder text
+- In the **main branch**, use `:latest` as a placeholder (it will be replaced in the deploy branch)
+- In the **deploy branch**, the image tag will be the specific SHA (updated by CI/CD)
 
-**For single service with Traefik:**
+**For single service with Traefik (main branch):**
 ```yaml
 version: "3.8"
 
 services:
   app:
+    # The image tag will be replaced by GitHub Actions workflow in the deploy branch
     image: ghcr.io/owner/repo:latest  # Use actual owner/repo from git remote
     container_name: app-name
     networks:
@@ -102,6 +113,8 @@ networks:
     name: ${NETWORK_NAME:-traefik_network}  # Allow network name override via env var
     external: true
 ```
+
+**Note:** The deploy branch will have the same structure but with `image: ghcr.io/owner/repo:abc123...` (full SHA)
 
 **For multi-service:**
 - Include all services (e.g., app + database + cache)
@@ -133,31 +146,43 @@ networks:
 - Get actual repository owner/repo from: `git remote get-url origin`
 - Use actual values in docker-compose.yml image field
 
-### 6. Remind About Secrets and Environment Variables
+### 6. Remind About Secrets, Environment Variables, and Deploy Branch
 
 After generating files, remind the user:
 
 ```
-Important: Add the following secret to your GitHub repository:
+Important Setup Steps:
 
-1. Go to: https://github.com/OWNER/REPO/settings/secrets/actions
-2. Click "New repository secret"
-3. Name: PORTAINER_REDEPLOY_HOOK
-4. Value: Your Portainer webhook URL (get from Portainer stack settings)
+1. Add GitHub Secret:
+   - Go to: https://github.com/OWNER/REPO/settings/secrets/actions
+   - Click "New repository secret"
+   - Name: PORTAINER_REDEPLOY_HOOK
+   - Value: Your Portainer webhook URL (get from Portainer stack settings)
 
-If you have multiple stacks, add:
-- PORTAINER_REDEPLOY_HOOK_2 (for second stack)
-- PORTAINER_REDEPLOY_HOOK_BOT (for bot-hoster, etc.)
+   If you have multiple stacks, add:
+   - PORTAINER_REDEPLOY_HOOK_2 (for second stack)
+   - PORTAINER_REDEPLOY_HOOK_BOT (for bot-hoster, etc.)
 
-To get webhook URL from Portainer:
-1. Open your stack in Portainer
-2. Click on "Webhooks"
-3. Copy the webhook URL
+2. Configure Portainer Stack:
+   - CRITICAL: Use the 'deploy' branch, NOT the main branch
+   - The deploy branch contains SHA-tagged images (e.g., ghcr.io/owner/repo:abc123...)
+   - This ensures you know exactly which version is deployed
 
-Portainer Environment Variables to Configure:
-- HOSTNAME: Your domain name (e.g., bot.example.com)
-- NETWORK_NAME: Traefik network name (optional, defaults to traefik_network)
-- Plus any application-specific environment variables
+   Portainer Environment Variables to Configure:
+   - HOSTNAME: Your domain name (e.g., bot.example.com)
+   - NETWORK_NAME: Traefik network name (optional, defaults to traefik_network)
+   - Plus any application-specific environment variables
+
+3. To get webhook URL from Portainer:
+   - Open your stack in Portainer
+   - Click on "Webhooks"
+   - Copy the webhook URL
+
+How it works:
+- Push to main branch → CI builds and tags image with commit SHA
+- CI updates deploy branch with the new SHA tag
+- Portainer watches deploy branch and auto-updates
+- You always know which exact commit is deployed
 ```
 
 ## Project Examples
@@ -201,7 +226,8 @@ After running this skill, verify:
 After setup:
 
 1. Add PORTAINER_REDEPLOY_HOOK to GitHub secrets
-2. Set up Portainer stack using the docker-compose.yml
+2. Set up Portainer stack using the docker-compose.yml FROM THE DEPLOY BRANCH
 3. Configure environment variables in Portainer
 4. Test deployment: Push to main branch
-5. Verify Portainer auto-updates the stack
+5. Verify CI creates/updates deploy branch with SHA tag
+6. Verify Portainer auto-updates the stack
