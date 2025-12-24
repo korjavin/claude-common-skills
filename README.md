@@ -29,7 +29,24 @@ Automates deployment setup with GitHub Actions, GitHub Container Registry (ghcr.
 
 ## Installation
 
-### Option 1: Personal Skills (Available Everywhere)
+### Option 1: Personal Skills with Auto-Updates (Recommended)
+
+Clone the repository and use symlinks for automatic updates:
+
+```bash
+# Clone to your Claude directory
+cd ~/.claude
+git clone https://github.com/korjavin/claude-common-skills.git
+
+# Create symlinks (stays updated when you git pull)
+mkdir -p ~/.claude/skills
+ln -sf ~/.claude/claude-common-skills/skills/portainer-deploy ~/.claude/skills/portainer-deploy
+
+# To update later, just run:
+# cd ~/.claude/claude-common-skills && git pull
+```
+
+### Option 2: Personal Skills (Copy Once)
 
 Copy skills to your personal Claude directory:
 
@@ -41,7 +58,7 @@ git clone https://github.com/korjavin/claude-common-skills.git
 cp -r claude-common-skills/skills/* ~/.claude/skills/
 ```
 
-### Option 2: Project Skills (Shared with Team)
+### Option 3: Project Skills (Shared with Team)
 
 Add skills to your project:
 
