@@ -286,3 +286,38 @@ sync-interval: 1s
 snapshot-interval: 6h
 retention: 720h  # 30 days
 ```
+
+### Pattern: With Auto-Restore (Disaster Recovery)
+
+Enable automatic database restoration if the database file doesn't exist (great for new deployments or after data loss):
+
+```yaml
+# In the Litestream command section:
+command:
+  - -c
+  - |
+    cat << EOF > /tmp/litestream.yml
+    dbs:
+      - path: /app/data/app.db
+        replicas:
+          - type: s3
+            bucket: $${R2_BUCKET}
+            path: myapp
+            endpoint: $${R2_ENDPOINT}
+            sync-interval: 1h
+            snapshot-interval: 24h
+            retention: 168h
+    EOF
+    exec litestream replicate -config /tmp/litestream.yml -restore-if-db-not-exists
+```
+
+**Behavior:**
+- ✅ Database exists → Normal replication
+- ✅ Database missing, backup exists → Auto-restore from backup, then replicate
+- ✅ Database missing, no backup → App creates new DB, replication starts
+
+This is ideal for:
+- Production deployments where data must survive container recreation
+- Migration to new servers
+- Disaster recovery scenarios
+

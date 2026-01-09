@@ -48,6 +48,7 @@ Ask the user:
 2. **Database path**: "What is the path to your SQLite database inside the container?" (e.g., `/app/data/meds.db`)
 3. **Sync frequency**: "How often should changes be synced? (default: 1h for infrequent changes, 10s for frequent)"
 4. **Snapshot frequency**: "How often to create full snapshots? (default: 24h)"
+5. **Auto-restore**: "Do you want to auto-restore the database from backup if it doesn't exist? (recommended for disaster recovery)"
 
 ### 3. Enable WAL Mode in Application Code
 
@@ -99,7 +100,7 @@ Add as a sidecar container that shares the database volume. Use dynamic config g
                 snapshot-interval: ${SNAPSHOT_INTERVAL}
                 retention: ${RETENTION}
         EOF
-        exec litestream replicate -config /tmp/litestream.yml
+        exec litestream replicate -config /tmp/litestream.yml ${RESTORE_FLAG}
     volumes:
       - ${VOLUME_NAME}:${VOLUME_MOUNT_PATH}
     environment:
@@ -122,6 +123,30 @@ Add as a sidecar container that shares the database volume. Use dynamic config g
 - `${VOLUME_NAME}` - Docker volume name (must match main app)
 - `${VOLUME_MOUNT_PATH}` - Where volume is mounted (e.g., `/app/data`)
 - `${MAIN_SERVICE_NAME}` - Name of the main application service
+- `${RESTORE_FLAG}` - If auto-restore enabled: `-restore-if-db-not-exists`, otherwise empty
+
+### Auto-Restore Option
+
+The `-restore-if-db-not-exists` flag enables automatic disaster recovery:
+
+```yaml
+exec litestream replicate -config /tmp/litestream.yml -restore-if-db-not-exists
+```
+
+**How it works:**
+- On container start, Litestream checks if the database file exists
+- If **database exists**: Normal replication continues
+- If **database doesn't exist**: Litestream restores from the latest backup in S3/R2 before starting replication
+- If **no backup exists and database doesn't exist**: Proceeds normally (app creates fresh database)
+
+**When to use:**
+- ✅ Disaster recovery - automatically restore on new server
+- ✅ Container recreation - restore when volume is lost
+- ✅ Migration - easily move to new infrastructure
+
+**When NOT to use:**
+- ❌ Development environments where you want fresh databases
+- ❌ When you need manual control over restore process
 
 ### 5. Explain Environment Variables
 
@@ -214,6 +239,7 @@ After running this skill, verify:
 - [ ] Environment variables documented for user
 - [ ] User reminded about R2/S3 credential setup
 - [ ] Sync and snapshot intervals configured appropriately
+- [ ] Auto-restore flag added if disaster recovery is desired (`-restore-if-db-not-exists`)
 
 ## Next Steps for User
 
