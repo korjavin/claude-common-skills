@@ -37,6 +37,11 @@ You are a project scaffolding assistant that creates new Go web projects based o
 
    12. **Use Go vendoring?** (y/n) - Vendor dependencies for reproducible builds (`go mod vendor`, build with `-mod vendor`)
 
+   13. **Create GitHub repository?** (y/n) - Uses `gh` CLI to create repo
+       - If yes, ask: **Public or private?** (default: public)
+       - **License?** (default: MIT) - Options: MIT, Apache-2.0, GPL-3.0, BSD-3-Clause, or none
+       - **Short description?** - One-line project description for GitHub
+
 2. **Create Project Structure** based on selections:
 
    ```
@@ -211,10 +216,14 @@ You are a project scaffolding assistant that creates new Go web projects based o
    - Use table-driven tests
    - Example tests in `internal/service/` and `internal/api/`
 
-6. **Initialize Git**:
+6. **Initialize Git & GitHub**:
    - `git init`
-   - Create initial commit
-   - Add remote origin if user provides GitHub URL
+   - Create initial commit with message "Initial commit: project scaffolding"
+   - If GitHub repo creation was selected:
+     ```bash
+     gh repo create {project-name} --public/--private --description "{description}" --license {license} --source . --push
+     ```
+   - This creates the repo and pushes in one command
 
 ## Output
 
