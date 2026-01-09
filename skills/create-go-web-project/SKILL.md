@@ -170,29 +170,42 @@ You are a project scaffolding assistant that creates new Go web projects based o
 
    **Vendoring**:
    - Run `go mod vendor` after generating `go.mod`
-   - Update Dockerfile to build with `-mod vendor` flag
-   - Add `vendor/` to `.gitignore` is optional (user preference)
+   - **IMPORTANT**: Remove `vendor/` from `.gitignore` so it gets committed
+   - Vendor directory MUST be committed to repo for Docker builds to work
+   - Update Dockerfile to copy vendor directory and use `-mod vendor` flag
 
 4. **Docker & CI/CD**:
 
    **Dockerfile** (multi-stage):
    ```dockerfile
    # Build stage
-   FROM golang:1.25-alpine AS builder
+   FROM golang:1.24-alpine AS builder
    WORKDIR /app
+
+   # Copy go mod files first for better caching
    COPY go.mod go.sum ./
-   RUN go mod download
+
+   # Copy vendor directory (if using vendoring)
+   COPY vendor/ ./vendor/
+
+   # Copy the rest of the application
    COPY . .
-   # Use -mod vendor if vendoring is enabled
-   RUN CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/server
+
+   # Build using vendor directory (no go mod download needed)
+   RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o server ./cmd/server
+
+   # Build the bot (if using bot)
+   RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o bot ./cmd/bot
 
    # Runtime stage
    FROM alpine:latest
    RUN apk --no-cache add ca-certificates
    WORKDIR /app
    COPY --from=builder /app/server .
+   COPY --from=builder /app/bot .
    # Copy frontend if exists
    COPY web/ ./web/  # or frontend/dist/ for React
+   COPY sql/migrations/ ./sql/migrations/
    EXPOSE 8080
    CMD ["./server"]
    ```
@@ -331,11 +344,38 @@ rm go.sum && go mod tidy && go mod vendor
 ### Module Version Auto-Upgrade
 **Problem**: `go mod tidy` may auto-upgrade Go version (e.g., 1.22 → 1.24).
 
-**Solution**: Pin the Go version in go.mod if you need to control it:
+**Solution**:
+- The version may be auto-updated by go tooling, which is generally fine for new projects
+- Update Dockerfile to use matching Go version: `FROM golang:1.24-alpine`
+
+### Skip go mod download When Vendoring
+**Problem**: When using vendoring (`go mod vendor`), Docker build fails because `go mod download` is unnecessary and may fail if Go version doesn't match.
+
+**Solution**:
+- When vendoring is enabled, skip `go mod download` in Dockerfile
+- Copy vendor directory before building
+- Use `-mod vendor` flag in build commands:
+```dockerfile
+COPY vendor/ ./vendor/
+RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o server ./cmd/server
 ```
-go 1.22
-```
-The version may be auto-updated by go tooling, which is generally fine for new projects.
+
+### Vendor Directory Not Found in Docker Build
+**Problem**: Docker build fails with `"/vendor": not found` because vendor directory is in `.gitignore` and wasn't committed.
+
+**Solution**:
+1. Remove `vendor/` from `.gitignore`:
+   ```
+   # Go vendor (commented out to commit vendor directory)
+   # vendor/
+   ```
+2. Commit and push the vendor directory:
+   ```bash
+   git add vendor/
+   git commit -m "Add vendor directory for reproducible builds"
+   git push
+   ```
+3. The vendor directory MUST be in the repository for Docker builds to work.
 
 ### Always Test Build Before Committing
 **Problem**: Import path issues may only surface during `go build`.
