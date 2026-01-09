@@ -27,6 +27,25 @@ Automates deployment setup with GitHub Actions, GitHub Container Registry (ghcr.
 
 [📖 Read more](./skills/portainer-deploy/README.md)
 
+### 💾 [litestream-backup](./skills/litestream-backup/)
+
+Automates SQLite database backup and replication setup using Litestream with S3-compatible storage.
+
+**Features:**
+- Continuous SQLite replication to S3/R2
+- Cloudflare R2, AWS S3, MinIO support
+- Docker Compose sidecar integration
+- Works with Portainer deployments
+- Configurable sync and snapshot intervals
+
+**Use when:**
+- Adding backup for SQLite databases
+- Setting up disaster recovery
+- Integrating Litestream into Docker Compose
+- Deploying with Cloudflare R2
+
+[📖 Read more](./skills/litestream-backup/README.md)
+
 ## Installation
 
 ### Option 1: Personal Skills with Auto-Updates (Recommended)
@@ -41,6 +60,7 @@ git clone https://github.com/korjavin/claude-common-skills.git
 # Create symlinks (stays updated when you git pull)
 mkdir -p ~/.claude/skills
 ln -sf ~/.claude/claude-common-skills/skills/portainer-deploy ~/.claude/skills/portainer-deploy
+ln -sf ~/.claude/claude-common-skills/skills/litestream-backup ~/.claude/skills/litestream-backup
 
 # To update later, just run:
 # cd ~/.claude/claude-common-skills && git pull
