@@ -103,8 +103,9 @@ Add as a sidecar container that shares the database volume. Use dynamic config g
     volumes:
       - ${VOLUME_NAME}:${VOLUME_MOUNT_PATH}
     environment:
-      - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
-      - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
+      # AWS SDK expects these standard env vars - map custom vars to them
+      - AWS_ACCESS_KEY_ID=${CUSTOM_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${CUSTOM_SECRET_ACCESS_KEY}
       - R2_ENDPOINT=${R2_ENDPOINT}
       - R2_BUCKET=${R2_BUCKET}
     depends_on:
@@ -124,16 +125,21 @@ Add as a sidecar container that shares the database volume. Use dynamic config g
 
 ### 5. Explain Environment Variables
 
+**IMPORTANT**: The AWS SDK (used by Litestream) requires standard environment variable names.
+If you use custom names (e.g., `LITESTREAM_R2_ACCESS_KEY_ID`), you must map them to
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the container's environment section.
+
 Remind the user to add these environment variables in Portainer:
 
 ```
 Required Environment Variables:
 
-1. LITESTREAM_ACCESS_KEY_ID
+1. AWS_ACCESS_KEY_ID (or CUSTOM_ACCESS_KEY_ID mapped to this)
    - For R2: Get from Cloudflare Dashboard → R2 → Manage R2 API Tokens
    - For AWS S3: Your AWS Access Key ID
+   - NOTE: AWS SDK does NOT read LITESTREAM_* or R2_* prefixed vars
 
-2. LITESTREAM_SECRET_ACCESS_KEY
+2. AWS_SECRET_ACCESS_KEY (or CUSTOM_SECRET_ACCESS_KEY mapped to this)
    - For R2: Get from Cloudflare Dashboard → R2 → Manage R2 API Tokens
    - For AWS S3: Your AWS Secret Access Key
 
@@ -178,6 +184,16 @@ To get Cloudflare R2 credentials:
 - SQLite is not in WAL mode
 - Add `PRAGMA journal_mode=WAL` to application code
 
+**"no EC2 IMDS role found" error (falling back to IMDS):**
+- This means credentials are not being read correctly
+- The AWS SDK expects `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+- If you use custom env var names (e.g., `LITESTREAM_R2_ACCESS_KEY_ID`), map them:
+  ```yaml
+  environment:
+    - AWS_ACCESS_KEY_ID=${CUSTOM_ACCESS_KEY_ID}
+    - AWS_SECRET_ACCESS_KEY=${CUSTOM_SECRET_ACCESS_KEY}
+  ```
+
 **Replication not starting:**
 - Check credentials are correct
 - Verify bucket exists
@@ -194,6 +210,7 @@ After running this skill, verify:
 - [ ] WAL mode enabled in application code (`PRAGMA journal_mode=WAL`)
 - [ ] Litestream service added to docker-compose.yml
 - [ ] Correct volume shared between app and Litestream
+- [ ] AWS SDK credential env vars are correctly mapped (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
 - [ ] Environment variables documented for user
 - [ ] User reminded about R2/S3 credential setup
 - [ ] Sync and snapshot intervals configured appropriately
