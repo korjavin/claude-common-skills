@@ -1266,7 +1266,7 @@ Brief description of the project.
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - Docker & Docker Compose
 - Node.js 22+ (if using frontend)
 

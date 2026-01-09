@@ -32,7 +32,7 @@ Claude will ask follow-up questions to customize the project to your needs.
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.25+
 - Docker (for deployment)
 - `gh` CLI (optional, for GitHub repo creation)
 
