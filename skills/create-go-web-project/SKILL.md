@@ -18,29 +18,29 @@ You are a project scaffolding assistant that creates new Go web projects based o
       - **Go + Telegram Bot** - Telegram bot only, optional simple web dashboard
       - **Go + Telegram Bot + Web** - Telegram bot with full web UI
 
-   3. **Google OAuth2 authentication?** (y/n) - Adds Google login via golang.org/x/oauth2
+   4. **Google OAuth2 authentication?** (y/n) - Adds Google login via golang.org/x/oauth2
 
-   4. **Include Telegram integration?** (y/n) - Adds Telegram bot support via `github.com/go-telegram-bot-api/telegram-bot-api`
+   5. **Include Telegram integration?** (y/n) - Adds Telegram bot support via `github.com/go-telegram-bot-api/telegram-bot-api`
 
       If yes, ask: **Include Telegram WebApp Auth for web login?** (y/n) - Allows users to authenticate on web via Telegram WebApp initData
 
-   5. **SQLite database with sqlc?** (y/n) - Type-safe SQL access layer with migrations
+   6. **SQLite database with sqlc?** (y/n) - Type-safe SQL access layer with migrations
 
-   6. **Litestream backup to R2/S3?** (y/n) - Only ask if SQLite was selected. Adds continuous DB backup to object storage with separate credentials. Includes auto-restore on startup.
+   7. **Litestream backup to R2/S3?** (y/n) - Only ask if SQLite was selected. Adds continuous DB backup to object storage with separate credentials. Includes auto-restore on startup.
 
-   7. **R2/S3 object storage?** (y/n) - File uploads to Cloudflare R2 or AWS S3
+   8. **R2/S3 object storage?** (y/n) - File uploads to Cloudflare R2 or AWS S3
 
-   8. **WebSocket support?** (y/n) - Adds gorilla/websockets or equivalent for real-time features
+   9. **WebSocket support?** (y/n) - Adds gorilla/websockets or equivalent for real-time features
 
-   9. **Rate limiting middleware?** (y/n) - Adds basic IP-based rate limiting
+   10. **Rate limiting middleware?** (y/n) - Adds basic IP-based rate limiting
 
-   10. **CORS middleware?** (y/n) - Adds configurable CORS headers for cross-origin requests
+   11. **CORS middleware?** (y/n) - Adds configurable CORS headers for cross-origin requests
 
-   11. **Email notifications?** (y/n) - Adds email sending capability (configure via SMTP or service like SendGrid/Mailgun)
+   12. **Email notifications?** (y/n) - Adds email sending capability (configure via SMTP or service like SendGrid/Mailgun)
 
-   12. **Use Go vendoring?** (y/n) - Vendor dependencies for reproducible builds (`go mod vendor`, build with `-mod vendor`)
+   13. **Use Go vendoring?** (y/n) - Vendor dependencies for reproducible builds (`go mod vendor`, build with `-mod vendor`)
 
-   13. **Create GitHub repository?** (y/n) - Uses `gh` CLI to create repo
+   14. **Create GitHub repository?** (y/n) - Uses `gh` CLI to create repo
        - If yes, ask: **Public or private?** (default: public)
        - **License?** (default: MIT) - Options: MIT, Apache-2.0, GPL-3.0, BSD-3-Clause, or none
        - **Short description?** - One-line project description for GitHub
@@ -84,9 +84,10 @@ You are a project scaffolding assistant that creates new Go web projects based o
 3. **Generate Files** based on project type and features:
 
    ### Always Generate:
-   - `.gitignore` (standard Go + Node patterns)
-   - `.dockerignore` (exclude .git, .env, node_modules, test files, docs)
+   - `.gitignore` (standard Go + Node patterns, vendor/ NOT ignored if vendoring)
+   - `.dockerignore` (exclude .git, .env, node_modules, test files, docs - **do NOT exclude vendor/**)
    - `.env.example` with all relevant variables
+   - **Important**: When using `//go:embed`, paths are relative to the `.go` file location
    - `README.md` with setup instructions, environment variables, deployment guide
    - `agents.md` explaining project structure for AI assistants
    - `go.mod` with appropriate dependencies
@@ -103,7 +104,7 @@ You are a project scaffolding assistant that creates new Go web projects based o
 
    **Go + Vanilla HTML/JS**:
    - `web/index.html` with vanilla JS/CSS
-   - Go serves static files from `web/`
+   - Go serves static files from `web/` using `http.ServeFile()`
 
    **Go + React (Vite)**:
    - `frontend/` with full Vite + React + TypeScript setup
@@ -112,7 +113,9 @@ You are a project scaffolding assistant that creates new Go web projects based o
 
    **Go + Telegram Bot**:
    - `cmd/bot/main.go` entry point
-   - Uses `github.com/go-telegram-bot-api/telegram-bot-api`
+   - Uses `github.com/go-telegram-bot-api/telegram-bot-api` (NOT v5)
+   - **IMPORTANT**: `GetUpdatesChan()` returns `(updates, error)` - handle both values
+   - **IMPORTANT**: Use `AnswerCallbackQuery()` for callback queries, not `Request()`
    - Simple web handler for health checks
 
    **Go + Telegram Bot + Web**:
@@ -134,13 +137,14 @@ You are a project scaffolding assistant that creates new Go web projects based o
    **SQLite + sqlc**:
    - `sqlc.yaml` configuration pointing to migrations for schema
    - Migrations using `github.com/pressly/goose/v3`:
-     - SQL files in designated folder (e.g., `internal/store/migrations/`)
-     - Embedded using `//go:embed migrations/*.sql`
+     - SQL files in designated folder (e.g., `sql/migrations/`)
+     - Embedded using `//go:embed sql/migrations/*.sql` in `internal/db/db.go`
      - Naming: `001_init.sql`, `002_add_users.sql`, etc.
    - `sql/queries/` with sqlc query definitions
    - `internal/repository/` sqlc-generated code
    - Database connection with WAL mode enabled
-   - Migrations auto-run on startup via `goose.Up(db, "migrations")`
+   - Migrations auto-run on startup via `goose.Up(DB, "sql/migrations")`
+   - **IMPORTANT**: The embed directive path must match where migrations are located relative to the .go file
    - Environment: `DB_PATH`
 
    **Litestream** (only when SQLite selected):
@@ -170,8 +174,9 @@ You are a project scaffolding assistant that creates new Go web projects based o
 
    **Vendoring**:
    - Run `go mod vendor` after generating `go.mod`
-   - **IMPORTANT**: Remove `vendor/` from `.gitignore` so it gets committed
-   - Vendor directory MUST be committed to repo for Docker builds to work
+   - **CRITICAL**: Remove `vendor/` from `.gitignore` (comment it out or delete)
+   - **CRITICAL**: Remove `vendor/` from `.dockerignore` - it MUST be in Docker build context
+   - **CRITICAL**: Commit and push the vendor directory to git
    - Update Dockerfile to copy vendor directory and use `-mod vendor` flag
 
 4. **Docker & CI/CD**:
@@ -219,12 +224,14 @@ You are a project scaffolding assistant that creates new Go web projects based o
    **deploy.yml** (GitHub Actions):
    - Build and push to GHCR on master push
    - Update `deploy` branch with new image tag in docker-compose.yml
+   - **IMPORTANT**: The `deploy` branch may not exist initially - add steps to create it if missing
    - Trigger Portainer webhook via `PORTAINER_WEBHOOK` secret
 
    **dev-deploy.yml** (GitHub Actions):
    - Build on any branch except master
    - Tag with branch name
    - Update `deploy-dev` branch
+   - **IMPORTANT**: The `deploy-dev` branch may not exist initially - add steps to create it if missing
    - Trigger Portainer webhook via `PORTAINER_WEBHOOK_DEV` secret
 
 5. **Testing**:
@@ -244,7 +251,17 @@ You are a project scaffolding assistant that creates new Go web projects based o
      git remote add origin https://github.com/{username}/{project-name}.git
      git push -u origin master
      ```
-   - After initial push, create LICENSE file separately if license was requested (gh CLI doesn't support `--license` flag)
+   - Create LICENSE file separately (gh CLI doesn't support `--license` flag)
+
+7. **Verify Build**:
+   - Before making initial commit, always verify the build works:
+   ```bash
+   go mod tidy
+   go build ./cmd/server
+   go build ./cmd/bot  # if using bot
+   go mod vendor  # if vendoring enabled
+   ```
+   - This catches import path issues, unused imports, and other problems early
 
 ## Output
 
@@ -267,123 +284,5 @@ After gathering all preferences and generating files:
 - agents.md should explain: where things are, how to add new endpoints, common patterns
 - Always include healthcheck endpoint and graceful shutdown
 - Use `log/slog` for structured logging (standard library, no external deps)
-- If vendoring selected, use `-mod vendor` flag in build commands
-
-## Troubleshooting & Lessons Learned
-
-### Telegram Bot Package Issues
-**Problem**: `github.com/telegram-bot-api/v5` package may not exist or be unavailable.
-
-**Solution**: Use `github.com/go-telegram-bot-api/telegram-bot-api` instead (v4.6.4+incompatible).
-
-```go
-// Import like this:
-import tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-```
-
-### Module Import Path Mismatch
-**Problem**: Go modules use the GitHub repository path (e.g., `github.com/username/projectname`), but when creating files locally before pushing, Claude may use a local path like `github.com/iv/Projects/testapp`.
-
-**Solution**:
-1. First ask user for their GitHub username/org BEFORE generating code
-2. Use `github.com/{username}/{project-name}` as the module name from the start
-3. Update go.mod immediately after `go mod init`:
-   ```bash
-   go mod edit -module=github.com/username/project-name
-   ```
-4. When updating import paths in files, use `sed` to replace all occurrences:
-   ```bash
-   sed -i '' 's|github.com/old/path|github.com/new/path|g' internal/**/*.go cmd/**/*.go
-   ```
-
-### GitHub License Not Applied via CLI
-**Problem**: `gh repo create --license` flag doesn't exist in recent versions.
-
-**Solution**: Create LICENSE file manually and push it:
-```bash
-cat > LICENSE << 'EOF'
-MIT License
-... standard MIT text with [year] and [fullname] ...
-EOF
-git add LICENSE && git commit -m "Add MIT license" && git push
-```
-
-### Go Sum Corruption
-**Problem**: Running `go mod tidy` or `go mod vendor` can fail with "wrong number of fields" in go.sum.
-
-**Solution**:
-```bash
-rm go.sum && go mod tidy && go mod vendor
-```
-
-### Dependencies with Invalid Transitive Dependencies
-**Problem**: Some packages like `github.com/remyoudompheng/bigfft` may reference invalid versions.
-
-**Solution**: Remove problematic indirect dependencies from go.mod manually and re-run `go mod tidy`.
-
-### Docker Build Caching
-**Problem**: Docker builds can be slow if not using build cache properly.
-
-**Solution**: In Dockerfile, copy go.mod/go.sum first, run `go mod download`, THEN copy the rest of the files. This leverages Docker layer caching.
-
-### GitHub Actions Cache for Go
-**Problem**: Go builds in CI can be slow without caching.
-
-**Solution**: Use GitHub Actions cache for Go modules:
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: |
-      ~/.cache/go-build
-      ~/go/pkg/mod
-    key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-    restore-keys: |
-      ${{ runner.os }}-go-
-```
-
-### Module Version Auto-Upgrade
-**Problem**: `go mod tidy` may auto-upgrade Go version (e.g., 1.22 → 1.24).
-
-**Solution**:
-- The version may be auto-updated by go tooling, which is generally fine for new projects
-- Update Dockerfile to use matching Go version: `FROM golang:1.24-alpine`
-
-### Skip go mod download When Vendoring
-**Problem**: When using vendoring (`go mod vendor`), Docker build fails because `go mod download` is unnecessary and may fail if Go version doesn't match.
-
-**Solution**:
-- When vendoring is enabled, skip `go mod download` in Dockerfile
-- Copy vendor directory before building
-- Use `-mod vendor` flag in build commands:
-```dockerfile
-COPY vendor/ ./vendor/
-RUN CGO_ENABLED=0 GOOS=linux go build -mod vendor -o server ./cmd/server
-```
-
-### Vendor Directory Not Found in Docker Build
-**Problem**: Docker build fails with `"/vendor": not found` because vendor directory is in `.gitignore` and wasn't committed.
-
-**Solution**:
-1. Remove `vendor/` from `.gitignore`:
-   ```
-   # Go vendor (commented out to commit vendor directory)
-   # vendor/
-   ```
-2. Commit and push the vendor directory:
-   ```bash
-   git add vendor/
-   git commit -m "Add vendor directory for reproducible builds"
-   git push
-   ```
-3. The vendor directory MUST be in the repository for Docker builds to work.
-
-### Always Test Build Before Committing
-**Problem**: Import path issues may only surface during `go build`.
-
-**Solution**: Always run these commands before making the initial commit:
-```bash
-go mod tidy
-go build ./cmd/server
-go build ./cmd/bot
-go mod vendor  # if vendoring enabled
-```
+- If vendoring selected, use `-mod vendor` flag in build commands and commit vendor directory
+- **Go 1.24**: The go.mod may auto-upgrade to 1.24, update Dockerfile base image accordingly
