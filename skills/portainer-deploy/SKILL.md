@@ -189,6 +189,69 @@ CMD ["./app"]
 4. **After COPY:** Add the user creation after all `COPY` commands to avoid permission issues
 5. **Before CMD:** The `USER` directive must come before `CMD` to ensure the app runs as non-root
 
+#### Handling Volume Permissions
+
+**Problem:** When switching from root to non-root user, existing Docker volumes will have files owned by root, causing "read-only" or permission denied errors.
+
+**Solution:** Use an entrypoint script to fix permissions at container startup.
+
+**Create `entrypoint.sh`:**
+```bash
+#!/bin/sh
+set -e
+
+# Auto-fix permissions for data directory when running as root
+if [ "$(id -u)" = "0" ]; then
+    echo "Running as root, fixing /app/data permissions..."
+    mkdir -p /app/data
+    chown -R appuser:appuser /app/data
+    echo "Switching to appuser..."
+    exec su-exec appuser "$@"
+fi
+
+# Already running as appuser
+exec "$@"
+```
+
+**Update Dockerfile:**
+```dockerfile
+FROM alpine:latest
+WORKDIR /app
+
+# Install su-exec for privilege dropping
+RUN apk add --no-cache tzdata ca-certificates su-exec
+
+COPY --from=builder /app/bot .
+COPY --from=builder /app/web ./web
+COPY entrypoint.sh /entrypoint.sh
+
+# Make entrypoint executable and create non-root user
+RUN chmod +x /entrypoint.sh && \
+    addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser && \
+    chown -R appuser:appuser /app
+
+# Don't set USER - entrypoint handles privilege dropping
+# This allows fixing volume permissions on startup
+
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["./bot"]
+```
+
+**How it works:**
+1. Container starts as root
+2. Entrypoint fixes volume permissions
+3. Entrypoint drops to non-root user via `su-exec`
+4. Application runs securely as non-root
+
+**Manual fix for existing deployments:**
+```bash
+# Fix permissions without rebuilding
+docker exec --user root <container-name> chown -R 1000:1000 /app/data
+docker-compose restart
+```
+
 #### Multi-Stage Build Example
 
 ```dockerfile
