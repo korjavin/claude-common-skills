@@ -27,6 +27,12 @@ For each uncommitted plan file, in order:
       ```
       git push origin master
       ```
+      If push fails (e.g. remote has new commits), do a rebase pull and retry:
+      ```
+      git pull --rebase origin master
+      git push origin master
+      ```
+      If push still fails after the rebase, stop and report the error — do not continue to the next file.
 
    d. **Create Jules task**:
       ```
@@ -36,9 +42,24 @@ For each uncommitted plan file, in order:
 
 3. **Report** — after each file is processed, tell the user which plan was committed and which Jules task was created. Continue to the next file.
 
+## Running non-interactively
+
+When invoking with `claude -p`, pre-approve the required tools to avoid approval prompts:
+
+```
+claude -p '/jules-task-from-plan' --allowedTools "Bash(git *)" "Bash(jules *)"
+```
+
+Or add to the project's `.claude/settings.json`:
+```json
+{
+  "allowedTools": ["Bash(git *)", "Bash(jules *)"]
+}
+```
+
 ## Notes
 
 - Process files one at a time. Do not batch commits.
-- If `git push` fails, stop and report the error — do not continue to the next file.
+- If `git push` fails, attempt `git pull --rebase origin master` then retry the push. Only stop if the retry also fails.
 - If `jules new` fails, report the error but continue to the next file (the commit + push already happened).
 - If there are no uncommitted plan files, tell the user: "No uncommitted plan files found in docs/plans/."
