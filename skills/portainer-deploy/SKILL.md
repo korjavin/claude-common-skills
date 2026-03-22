@@ -299,6 +299,7 @@ services:
       - traefik_network
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
       - "traefik.http.routers.app.rule=Host(`${HOSTNAME}`)"
       - "traefik.http.routers.app.entrypoints=websecure"
       - "traefik.http.routers.app.tls.certresolver=myresolver"
@@ -311,8 +312,8 @@ services:
 
 networks:
   traefik_network:
-    name: ${NETWORK_NAME:-traefik_network}  # Allow network name override via env var
     external: true
+    name: ${TRAEFIK_NETWORK_NAME:-traefik_default}  # Configure actual network name via Portainer env var
 ```
 
 **Note:** The deploy branch will have the same structure but with `image: ghcr.io/owner/repo:abc123...` (full SHA)

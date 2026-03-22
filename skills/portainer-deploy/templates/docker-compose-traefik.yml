@@ -20,6 +20,8 @@ services:
     labels:
       # Enable Traefik for this service
       - "traefik.enable=true"
+      # Tell Traefik which network to use for routing (must match the network name below)
+      - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
 
       # HTTP router configuration
       - "traefik.http.routers.app.rule=Host(`${HOSTNAME}`)"
@@ -61,8 +63,8 @@ services:
 
 networks:
   app_network:
-    name: ${NETWORK_NAME:-traefik_network}
     external: true
+    name: ${TRAEFIK_NETWORK_NAME:-traefik_default}
 
 # volumes:
 #   db-data:
