@@ -54,10 +54,13 @@ Read it fully: `bd show <id>`.
 ### 2b. Triage — is this even a ralphex job?
 Before planning, read the issue and the code it touches and decide:
 
-- **Trivial / one-touch fix** (a single-line change, a copy tweak, a wrong-condition guard, deleting a dead branch — you can see the whole fix and it needs no isolated worktree or CI dance): **skip ralphex entirely.** Fix it directly in the main checkout, run the relevant test/build, commit on a branch, open a PR, hand off at 2g. The ralphex worktree + plan + iteration machinery is pure overhead for a change you could type in a minute. Don't spin it up to prove diligence.
-- **Real task/feature/non-trivial bug** (multiple files, needs discovery, has acceptance criteria worth iterating on): go through the full ralphex flow, 2c onward.
+Two conditions decide it — ralphex is for work that is **(a) more than a simple fix AND (b) already researched and understood** (you know *what* to build; the approach and acceptance are clear):
 
-When unsure, lean toward the direct fix for anything you already fully understand and can verify quickly; reserve ralphex for work whose scope you can't hold in your head at once.
+- **Genuinely trivial / one-touch fix** (a single-line change, a copy tweak, a wrong-condition guard, deleting a dead branch — the *whole* fix fits in your head and touches one place): **skip ralphex, fix it directly**, run the relevant test/build, commit on a branch, open a PR, hand off at 2g. The plan + iteration machinery is pure overhead for a change you could type in a minute.
+- **Non-trivial work you can form a concrete plan for** (a real feature or multi-file change — whether or not anyone pre-researched it): **this is what ralphex is for — go through the full flow, 2c onward.** You do NOT need the work to have been researched *for* you: the `ralphex-plan` skill (2c) does the context discovery itself, so if you're handed a non-trivial task that wasn't pre-scoped by a planner, **read the code, run ralphex-plan to research + author the plan, and run ralphex yourself.** Its task→review→external-review→finalize loop produces materially better code than a one-pass edit, and it's worth the extra tokens. Don't sit waiting for someone else to hand you a spec — if you can write the plan, ralphex it.
+- **Genuinely can't form a plan yet — open-ended debugging with an unknown root cause, or multiple plausible approaches you haven't resolved**: ralphex is not the tool *yet*, because it executes a plan it doesn't have. Do the root-cause / research first (that's ordinary investigation, not ralphex), and the moment it resolves into concrete, plannable work, it becomes a ralphex job. The bar is "can I write a real plan for this?", not "did someone hand me one?"
+
+So: ralphex is neither "for everything" nor "rarely" — it's for **non-trivial work you can plan** (researching it yourself via ralphex-plan counts). Don't ralphex a one-liner (overhead); don't ralphex a genuinely-unknown root cause (no plan exists yet); do ralphex any researched-or-researchable feature/fix.
 
 ### 2c. Plan — use the ralphex-plan skill (do NOT hand-write plans)
 For anything not handled directly in 2b, **invoke the `ralphex-plan` skill** to author `docs/plans/YYYYMMDD-<slug>.md`. Do not write the plan file yourself — the skill produces the exact structure ralphex requires (context discovery, `### Task N:` sections, progress-tracking block). Hand-written plans routinely fail ralphex's validator (see gotchas).
@@ -75,11 +78,17 @@ git status --short                                          # MUST be clean now
 ```
 (No push to the base branch — local commit only, so the ralphex worktree sees the plan.)
 
-### 2d. Launch ralphex (background, isolated worktree)
+### 2d. Launch ralphex (background)
 ```bash
 ralphex --worktree --max-iterations 25 docs/plans/YYYYMMDD-<slug>.md
 ```
 Run with `run_in_background: true`. **Record the task_id and the progress file** `.ralphex/progress/progress-YYYYMMDD-<slug>.txt`. Default mode is Full (task + Claude review + external review + finalize) — do not change it unless the user asked. **If it exits within seconds, it did not run — it hit one of the launch gotchas below; fix and relaunch, don't count it as a real attempt.**
+
+**`--worktree` is OPTIONAL.** It makes ralphex create its *own* isolated worktree off `master` — which is why it requires launching from `master` HEAD (see gotchas). **When you are ALREADY in an isolated working copy — e.g. you are a subagent running inside your own git worktree, or the orchestrator handed you an isolated checkout — drop `--worktree` and run ralphex IN-PLACE on your current branch:**
+```bash
+ralphex --max-iterations 25 docs/plans/YYYYMMDD-<slug>.md
+```
+In-place mode has **no master requirement** (it operates on whatever branch you're on) and still runs the full task→review→external-review→finalize pipeline. It only needs a clean tree apart from the plan file (same as `--worktree`). This is the mode to use whenever `--worktree` would refuse because you're not on master — do NOT fall back to a hand-written direct fix just because `--worktree` won't launch; use in-place ralphex and keep the quality pipeline. Commit + open the PR from your current branch afterwards (2f).
 
 ### 2e. Monitor; restart on failure
 Watch via `TaskOutput` (block:false) and `tail` the progress file.
