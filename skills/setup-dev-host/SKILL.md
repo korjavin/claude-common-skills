@@ -1,6 +1,6 @@
 ---
 name: Setup New Dev Host
-description: Guidelines and instructions to bootstrap and configure a new development environment/host, including core tools (ralphex, revdiff, npm, claude, codex, agy, rg, gh, nvim, golang), yadm dotfiles, and Claude common skills.
+description: Guidelines and instructions to bootstrap and configure a new development environment/host, including core tools (herdr, ralphex, revdiff, npm, claude, codex, agy, rg, gh, nvim, golang), yadm dotfiles, and Claude common skills.
 ---
 
 # Setup New Dev Host Skill
@@ -27,21 +27,26 @@ brew install git gh neovim fzf ripgrep golang yadm
 
 ---
 
-## 1. Install `ralphex` and `revdiff`
+## 1. Install `herdr`, `ralphex`, and `revdiff`
 
-`ralphex` and `revdiff` are installed as system binaries.
+These tools are installed as system binaries.
 
-### On Debian/Ubuntu (using `.deb` packages via GitHub CLI):
+### On Debian/Ubuntu (amd64):
 ```bash
 # Create a temporary installation directory
 mkdir -p /tmp/install-dev-tools && cd /tmp/install-dev-tools
+
+# Download latest stable herdr binary
+gh release download v0.7.3 -R ogulcancelik/herdr -p "herdr-linux-x86_64"
+sudo mv herdr-linux-x86_64 /usr/local/bin/herdr
+sudo chmod +x /usr/local/bin/herdr
 
 # Download latest stable ralphex deb package
 gh release download v1.6.0 -R umputun/ralphex -p "ralphex_1.6.0_linux_amd64.deb"
 # Download latest stable revdiff deb package
 gh release download v1.11.0 -R umputun/revdiff -p "revdiff_1.11.0_linux_amd64.deb"
 
-# Install using dpkg
+# Install deb packages
 sudo dpkg -i ralphex_1.6.0_linux_amd64.deb revdiff_1.11.0_linux_amd64.deb
 
 # Clean up
@@ -50,6 +55,7 @@ cd - && rm -rf /tmp/install-dev-tools
 
 ### On macOS (via Homebrew):
 ```bash
+brew install ogulcancelik/tap/herdr
 brew install umputun/apps/ralphex
 brew install umputun/apps/revdiff
 ```
