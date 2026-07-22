@@ -22,8 +22,15 @@ BASE_URL = "https://jules.googleapis.com/v1alpha"
 
 def get_api_key():
     key = os.environ.get("JULES_API_KEY")
+    key_path = os.path.expanduser("~/.keys/jules.key")
+    if not key and os.path.exists(key_path):
+        try:
+            with open(key_path, "r") as f:
+                key = f.read().strip()
+        except Exception:
+            pass
     if not key:
-        print("[ERROR] JULES_API_KEY environment variable is not set.", file=sys.stderr)
+        print("[ERROR] JULES_API_KEY environment variable is not set and ~/.keys/jules.key could not be read.", file=sys.stderr)
         sys.exit(1)
     return key
 
@@ -197,7 +204,7 @@ def create_session(prompt, source_repo, branch="main"):
 
 def main():
     parser = argparse.ArgumentParser(description="Jules API Session Manager")
-    subparsers = parser.add_parsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("list", help="List all active sessions")
     subparsers.add_parser("approve-plans", help="Auto-approve all pending plans")
