@@ -212,12 +212,15 @@ def cleanup_merged_sessions():
 
     print(f"[*] Cleaned up {archived_count} session(s).")
 
-def create_session(prompt, source_repo, branch="main"):
+def create_session(prompt, source_repo, branch=None):
+    prompt_text = prompt
+    if branch and branch not in prompt:
+        prompt_text = f"[TARGET BRANCH: {branch}]\n{prompt}"
+
     data = {
-        "prompt": prompt,
+        "prompt": prompt_text,
         "sourceContext": {
-            "source": f"sources/github/{source_repo}",
-            "branch": branch
+            "source": f"sources/github/{source_repo}"
         },
         "requirePlanApproval": False,
         "automationMode": "AUTO_CREATE_PR"
