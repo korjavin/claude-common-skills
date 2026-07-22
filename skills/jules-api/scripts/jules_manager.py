@@ -131,10 +131,22 @@ def ensure_prs():
             continue
 
         # Check branch name from session context/outputs
-        branch_name = sess.get("sourceContext", {}).get("branch") or sess.get("branch")
+        src_ctx = sess.get("sourceContext", {})
+        branch_name = src_ctx.get("branch") if isinstance(src_ctx, dict) else None
+        if not branch_name:
+            branch_name = sess.get("branch")
+        
+        outputs = sess.get("outputs")
+        if isinstance(outputs, dict) and outputs.get("branch"):
+            branch_name = outputs.get("branch")
+        elif isinstance(outputs, list):
+            for item in outputs:
+                if isinstance(item, dict) and item.get("branch"):
+                    branch_name = item.get("branch")
+                    break
+
         if not branch_name or branch_name in ("main", "master"):
-            # Check outputs for generated branch name
-            branch_name = sess.get("outputs", {}).get("branch") or f"jules/{sess_id}"
+            branch_name = f"jules/{sess_id}"
 
         # Check if local or remote branch exists
         try:
