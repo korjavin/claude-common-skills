@@ -92,27 +92,39 @@ def auto_approve_all():
                     break
     print(f"[*] Auto-approved {count} pending plan(s).")
 
-def get_gh_pr_status(pr_url_or_number):
+def check_remote_branch_exists(repo, branch):
     try:
-        cmd = ["gh", "pr", "view", str(pr_url_or_number), "--json", "state,mergedAt,headRefName"]
+        cmd = ["gh", "api", f"repos/{repo}/branches/{branch}"]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def get_gh_pr_status(pr_url_or_number, repo=None):
+    try:
+        cmd = ["gh", "pr", "view", str(pr_url_or_number)]
+        if repo and not str(pr_url_or_number).startswith("http"):
+            cmd.extend(["-R", repo])
+        cmd.extend(["--json", "state,mergedAt,headRefName"])
         out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8")
         return json.loads(out)
     except Exception:
         return None
 
-def create_gh_pr(branch_name, title, body="Automated PR from Jules session"):
+def create_gh_pr(repo, branch_name, title, body="Automated PR from Jules session"):
     try:
         cmd = [
             "gh", "pr", "create",
+            "-R", repo,
             "--head", branch_name,
             "--title", title,
             "--body", body
         ]
         out = subprocess.check_output(cmd).decode("utf-8").strip()
-        print(f"[SUCCESS] Created PR: {out}")
+        print(f"[SUCCESS] Created PR for {repo} on branch {branch_name}: {out}")
         return out
     except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Failed to create PR for branch {branch_name}: {e}", file=sys.stderr)
+        print(f"[ERROR] Failed to create PR for {repo} branch {branch_name}: {e}", file=sys.stderr)
         return None
 
 def ensure_prs():
@@ -121,10 +133,15 @@ def ensure_prs():
     for sess in sessions:
         sess_id = sess.get("name", "").split("/")[-1]
         state = sess.get("state", "")
-        prompt = sess.get("prompt", f"Jules Task {sess_id}")
+        prompt_raw = sess.get("prompt", f"Jules Task {sess_id}")
+        prompt = prompt_raw.strip().split("\n")[0][:100]
         
         pr_info = sess.get("pullRequest", {}) or sess.get("pr", {})
         pr_url = pr_info.get("url") if isinstance(pr_info, dict) else None
+
+        # Extract repo from sourceContext
+        src = sess.get("sourceContext", {}).get("source", "") if isinstance(sess.get("sourceContext"), dict) else ""
+        repo = src.replace("sources/github/", "") if src.startswith("sources/github/") else "korjavin/nnue-trainer"
 
         # If PR already exists, skip
         if pr_url:
@@ -133,7 +150,7 @@ def ensure_prs():
         # Check branch name from session context/outputs
         src_ctx = sess.get("sourceContext", {})
         branch_name = src_ctx.get("branch") if isinstance(src_ctx, dict) else None
-        if not branch_name:
+        if not branch_name or branch_name in ("main", "master"):
             branch_name = sess.get("branch")
         
         outputs = sess.get("outputs")
@@ -146,30 +163,26 @@ def ensure_prs():
                     break
 
         if not branch_name or branch_name in ("main", "master"):
-            branch_name = f"jules/{sess_id}"
+            # If no branch output, check if default session branch exists on remote
+            test_branch = f"jules/{sess_id}"
+            if check_remote_branch_exists(repo, test_branch):
+                branch_name = test_branch
 
-        # Check if local or remote branch exists
-        try:
-            subprocess.run(["git", "fetch", "origin"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            branch_check = subprocess.run(
-                ["git", "rev-parse", "--verify", f"origin/{branch_name}"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            if branch_check.returncode == 0 or state in ("COMPLETED", "FINISHED", "AWAITING_REVIEW"):
-                print(f"[*] Found finished session {sess_id} without PR on branch {branch_name}. Creating PR...")
-                pr_url_created = create_gh_pr(branch_name, f"Jules: {prompt}", f"Automated PR for Jules session {sess_id}")
-                if pr_url_created:
-                    created_count += 1
-        except Exception as e:
-            print(f"[WARN] Error inspecting git branch for session {sess_id}: {e}")
+        if not branch_name:
+            continue
+
+        # Check if remote branch actually exists before creating PR
+        if check_remote_branch_exists(repo, branch_name):
+            print(f"[*] Found finished session {sess_id} without PR on branch {branch_name} ({repo}). Creating PR...")
+            pr_url_created = create_gh_pr(repo, branch_name, f"Jules: {prompt}", f"Automated PR for Jules session {sess_id}")
+            if pr_url_created:
+                created_count += 1
             
     print(f"[*] Created {created_count} missing PR(s).")
 
 def archive_session(session_id):
     print(f"[*] Archiving/Deleting completed session {session_id}...")
-    # HTTP DELETE to remove/archive session
     res = api_request(f"/sessions/{session_id}", method="DELETE")
-    # Also try archive endpoint if available
     api_request(f"/sessions/{session_id}:archive", method="POST", data={})
     print(f"[SUCCESS] Session {session_id} archived.")
 
@@ -178,6 +191,9 @@ def cleanup_merged_sessions():
     archived_count = 0
     for sess in sessions:
         sess_id = sess.get("name", "").split("/")[-1]
+        src = sess.get("sourceContext", {}).get("source", "") if isinstance(sess.get("sourceContext"), dict) else ""
+        repo = src.replace("sources/github/", "") if src.startswith("sources/github/") else "korjavin/nnue-trainer"
+
         pr_info = sess.get("pullRequest", {}) or sess.get("pr", {})
         pr_url = pr_info.get("url") if isinstance(pr_info, dict) else None
         pr_number = pr_info.get("number") if isinstance(pr_info, dict) else None
@@ -186,7 +202,7 @@ def cleanup_merged_sessions():
         if not target:
             continue
 
-        gh_status = get_gh_pr_status(target)
+        gh_status = get_gh_pr_status(target, repo=repo)
         if gh_status:
             pr_state = gh_status.get("state", "").upper()
             if pr_state in ("MERGED", "CLOSED"):
