@@ -1,0 +1,446 @@
+---
+name: outline-dream
+description: Restructure the user's Outline "SortedInbox" collection — merge overlapping AND duplicate folders, collapse duplicate documents (keep the richest, archive the rest), split oversized folders, inline tiny ones, fix misfiled documents, flatten over-deep paths, and maintain a horizontal "Tag Index" of #hashtag map-of-content docs. Operates on folder structure plus a skill-owned tag layer; may append #tags to content docs when confident (content prose/summaries/titles stay read-only). Logs every run as its own child doc inside the "Dreaming Timeline" folder in SortedInbox. Use when the user asks to dream the Outline KB, restructure SortedInbox, consolidate or de-duplicate folders, fix the SortedInbox tree, refresh the tag index, or clean up Outline structure.
+disable-model-invocation: true
+argument-hint: "[dry-run] [N=<max moves>] [scope=<folder name>] [no-tags] [tags-only]"
+---
+
+# outline-dream (SortedInbox structural consolidation)
+
+Goal: keep the **SortedInbox** Outline collection legible as it grows — both *vertically* (a clean folder tree) and *horizontally* (a tag index that cuts across folders). This skill **moves, merges, splits, renames, and de-duplicates** folders/documents, and maintains a derived **Tag Index**. Unlike the proposal-only `dream` skill for the local KB, this one *acts*.
+
+Sister skill: `outline-sort-inbox` files new items *into* SortedInbox. `outline-dream` reorganizes what's *already there*. The two never run at the same time.
+
+The name echoes Claude Code's `/dream` consolidation idea: a periodic background pass that reduces entropy without the user having to babysit.
+
+## Execution mode — non-interactive background job
+
+**This skill runs unattended, on a cron schedule. There is no user at the terminal.**
+
+Concrete consequences:
+
+- **Never prompt.** Don't ask for confirmation, don't print a plan and wait, don't pause for input. Decide and act.
+- **No interactive console output is meaningful.** Anything you'd "tell the user" goes into the run's Dreaming Timeline child doc instead. That doc is the only durable channel — chat output may go to a log file the user only reads when something looks broken.
+- **No `dry-run` confirmations either.** A `dry-run` invocation still completes end-to-end on its own — it just creates a child doc titled `Proposed run …` instead of executing.
+- **Self-recovering on transient errors.** Retry once on transient failures, then skip and log. Never block waiting for retries.
+- **Conservative on ambiguity.** When unsure between two homes for a doc, or unsure whether two items are truly duplicates, leave them alone. A no-op is safe; a wrong move or a wrong archive costs the user attention later.
+- **Final stdout is one line.** A single concise summary line at the very end (see Step 6). Cron captures this; the user only looks if a digest catches their eye.
+
+If at any point the skill genuinely needs a human decision, the correct action is to **skip that decision** (leave the doc/folder alone) and log it under `### Skipped — needs human review` in the run doc. Never wait.
+
+## Hard rules — read first
+
+1. **Strict scope: SortedInbox only.** Never touch Inbox, never move docs out of SortedInbox to other collections.
+2. **Document *content* is near-read-only.** Don't edit titles, summaries, prose, or *remove* anything from *content documents*. **One narrow exception — additive tag enrichment (F10):** you may **append** `#tags` to a content doc's `Tags:` line when you're confident the doc belongs to them. Append-only — never remove, reorder, or reword existing tags, and never touch any other part of the body. The doc bodies you may otherwise edit freely are:
+   - **folder/index documents** (the doc that *is* a folder — you may update its description body to reflect new children),
+   - **Tag Index docs** (the per-tag map-of-content docs the skill owns — see Step 8; their whole body is skill-generated and may be rewritten),
+   - the **Dreaming Timeline** folder doc (rarely — only its short intro line) and **per-run child docs** inside it (write-once, on the run that creates them).
+3. **Hierarchy depth cap: 4 levels** total (`SortedInbox → L1 → L2 → L3 → L4`). Never create a structure deeper than that. If you find one, flatten it. (The `Tag Index` and `Dreaming Timeline` metadata folders count toward depth too, but never go past L2.)
+4. **Never *hard-delete* a content document.** Two narrow, reversible exceptions to the "don't remove content" stance:
+   - You may **archive** (not delete) a content document **only** when it is a *confirmed exact duplicate* of another — same source URL, or identical normalized title with near-identical body. Keep the richest copy, archive the rest. Archiving is reversible (Outline keeps archived docs searchable and restorable). Log every archived ID *and* the kept ID. See F9.
+   - You may **delete an empty folder doc** after moving its children, but only if it has no body content beyond an autogenerated description.
+   When duplication is uncertain, do **not** archive — flag it under `### Duplicates — needs human review` instead.
+5. **Bounded actions.** Per-run budgets, each independent:
+   - **100 doc moves** (includes misc-drain, misfile fixes, and children moved during folder merges/splits).
+   - **6 structural folder ops** (folder creates, renames, merges, and empty-folder deletes).
+   - **30 duplicate-document archives.**
+   - **12 Tag Index doc writes** (creates + updates of `#tag` MOC docs).
+   - **25 tag-enrichment edits** (content docs whose `Tags:` line gets new tags appended — F10).
+   When any budget is exhausted, stop *that* category, finish the others, then write the run doc and exit. If any category hit its cap with work still queued, mark the run `capped` (Step 7 then ignores the watermark next time). `N=<n>` overrides the move budget only.
+6. **Always log.** Every move, create, rename, delete, archive, and tag-index write must land in this run's Dreaming Timeline child doc. If creating that doc or writing to it fails, abort the run (the Dreaming Timeline is the audit trail; without it, actions are invisible).
+7. **No `git`-style force.** If an action fails with a permissions or 5xx error, retry once, then skip and log to the run's child doc — don't escalate, don't loop.
+
+## Tools
+
+Outline MCP tools throughout:
+
+- `mcp__claude_ai_outline__list_collections` — locate SortedInbox by name
+- `mcp__claude_ai_outline__list_collection_documents` — full tree of SortedInbox (large; parse structurally, don't read whole bodies)
+- `mcp__claude_ai_outline__fetch` (resource=document) — read a doc when classification or duplicate-confirmation is unclear
+- `mcp__claude_ai_outline__list_documents` — full-text search; **this is how tags work** (Outline has no native tag field — `#hashtag` text in bodies is found by querying `#tag`). Also used to check for existing folders/topics.
+- `mcp__claude_ai_outline__move_document` — the core structural action
+- `mcp__claude_ai_outline__create_document` — create new folder docs and Tag Index docs
+- `mcp__claude_ai_outline__update_document` — only on folder index docs, Tag Index docs, the Dreaming Timeline folder, and per-run child docs
+- `mcp__claude_ai_outline__delete_document` — `archive: true` to archive a confirmed duplicate content doc (reversible); default delete only for verified-empty folder docs
+- `WebFetch` — only when a doc's body is opaque and contains a URL whose target would clarify the topic
+
+### A note on "tags" in this Outline
+
+Outline (this deployment, vendored `outlinewiki/outline:latest`) has **no native tag field** — `create_document`/`update_document` expose no `tags` parameter. The KB's tags live as inline `#kebab-case` hashtags inside document bodies, written by `outline-sort-inbox` on a `Tags:` line (e.g. `Tags: #ai #rag #langchain`). Full-text search resolves them: `list_documents query="#rag"` returns every doc whose body contains `#rag`, and the result's `context` field highlights the match.
+
+The skill therefore treats tags as **read + index + enrich**:
+- **read** — tags drive classification (F0/F2/F4) and de-dup decisions;
+- **index** — the **Tag Index** (Step 8) assembles tags into cross-folder MOC docs;
+- **enrich** — when confident, the skill **appends** missing tags to a content doc's `Tags:` line (F10), append-only, drawing only from the established vocabulary.
+
+Because the only write into a content body is the surgical, append-only `Tags:` patch, it never races the sorter's content authoring (and the two skills never run in parallel anyway). Everything else — summary, title, prose — stays untouched.
+
+## Args
+
+- *(no arg)* → full pass: de-dup, restructure, then refresh the Tag Index. Budgets per rule #5.
+- `dry-run` → plan all changes and write them as a new child doc (`Proposed run YYYY-MM-DD HH:MM [dry-run]`) inside the Dreaming Timeline folder, but do **not** call any mutating MCP tool. For previewing before a real run.
+- `N=<n>` → override the move budget for this run. `N=unlimited` removes it (use sparingly).
+- `scope=<folder name>` → restrict restructuring to one top-level folder of SortedInbox (cross-tree checks still read the whole collection to avoid creating duplicates elsewhere; the Tag Index pass still runs collection-wide unless combined with `no-tags`).
+- `no-tags` → skip the Tag Index pass (Step 8) entirely this run. Structural + de-dup work only.
+- `tags-only` → skip all structural/de-dup work; only enrich tags (F10) and build/refresh the Tag Index. Useful as a cheaper, more frequent cron entry.
+- `no-enrich` → skip tag enrichment (F10) this run. The skill still *reads* tags and maintains the Tag Index, but adds no tags to content docs.
+
+Combine freely: `dry-run scope=Engineering N=50`, `tags-only`, `no-tags scope=AI & ML`, `no-enrich`.
+
+## Step 0 — Discover SortedInbox
+
+Always fresh, never hard-code IDs.
+
+1. `list_collections` → find the collection named exactly `SortedInbox`. Save its ID. If absent, abort with a clear error — the user has not run `outline-sort-inbox` yet.
+2. `list_collection_documents` on SortedInbox. **This tree is large** (well over a thousand nodes once mature) and will exceed the tool's token limit; the result is saved to a file. Do **not** read the whole thing into context. Instead parse it structurally — extract a compact `depth ⇥ childCount ⇥ id ⇥ title` skeleton (e.g. with `jq` + a recursive walk over each top-level node's `children`) and reason from that. Capture for each node: `id`, `title`, parent, depth, direct-child count, and whether it's a folder (has children or body) or a leaf.
+   - Mark depth of each node. Anything at L5 or deeper is a violation (F5).
+3. Locate the **metadata folders** (top-level docs that are *not* content):
+   - **Dreaming Timeline** — the run-log folder. Search SortedInbox for a top-level doc titled exactly `Dreaming Timeline`.
+     - **If more than one exists** (a known failure mode — a stray empty duplicate can appear): the canonical one is the one **with the most children** (ties broken by earliest `createdAt`). Treat any *empty* duplicate as a stray folder to delete this run (F8 — it's an empty folder doc, safe to remove; log it). Never split run-logs across two folders.
+     - If none exists, create it with the intro body in Step 5 ("folder doc body").
+     - Save the canonical ID. List its children, sort by `createdAt` descending, and save the metadata of the most recent child (ID, title, `createdAt`) — that's the previous run's log, for the watermark (Step 7).
+     - **Do not fetch the body of any older child docs.** Only the single most-recent child is ever read.
+   - **Tag Index** — the horizontal layer. Search for a top-level doc titled exactly `Tag Index`. Save its ID and the titles of its children (the existing `#tag` MOC docs) — metadata only, don't fetch their bodies yet. If absent, it will be created in Step 8 (unless `no-tags`).
+4. Compute baseline stats over the **content tree only** — *exclude* the `Dreaming Timeline` and `Tag Index` folders and all their children from every tally. Record: total content docs, total folders, max depth, top-5 largest folders, top-5 smallest folders, and the count of duplicate-title clusters (Step 1, F8/F9). These go into the run-log header and the watermark.
+
+## Step 1 — Classify nodes
+
+Walk the skeleton once and tag each node. A node may carry multiple tags (e.g. oversized *and* overlaps a sibling). Metadata folders (`Dreaming Timeline`, `Tag Index`) are never classified.
+
+### F9. Duplicate content documents (collapse — priority pass)  ⟶ archive extras
+
+The same item often gets filed two or three times (re-shared links, repeated sorter runs). Collapse them so the rest of the pass isn't shuffling redundant copies.
+
+- **Detect cheaply first:** cluster content docs by **normalized title** straight from the skeleton (lowercase, trim, collapse whitespace, strip trailing emoji/punctuation). Only clusters of size ≥ 2 are candidates — typically a small handful.
+- **Confirm before acting:** `fetch` the bodies of a cluster's members and confirm they are the *same item*:
+  - **same source URL** in the body → confirmed duplicate, or
+  - **identical normalized title AND near-identical body** (same summary/first paragraph) → confirmed duplicate.
+  - Same title but *different* URLs/topics (coincidental collision) → **not** a duplicate; leave all in place.
+- **Keep the richest, archive the rest.** Richest = longest body / has summary + tags / most recent edit if otherwise equal. Archive the others with `delete_document(archive: true)` (reversible). If the kept copy and an archived copy live in different folders, that's fine — keeping the better-placed copy is preferred when bodies tie.
+- **Never hard-delete. Never archive on a "maybe."** Uncertain clusters go under `### Duplicates — needs human review` with all IDs, no action.
+- Counts against the **duplicate-archive budget** (30/run), not the move budget.
+
+### F8. Duplicate / overlapping folders (merge)
+
+Two folders that should be one.
+
+- **Exact duplicate** — same normalized title **and same parent** → always merge. (The stray empty `Dreaming Timeline` from Step 0 is handled here.)
+- **Same title, *different* parent** is usually legitimate, not a duplicate — e.g. `Media/Movies/Drama` and `Media/Series & TV Shows/Drama` are distinct genre buckets. Do **not** merge these.
+- **Overlap (near-duplicate)** — sibling folders covering the same topic: pluralization (`Agent` vs `Agents`), case (`AI Tools` vs `ai-tooling`), punctuation (`AI & ML` vs `AI/ML`), synonyms (`Memory` vs `RAG` when ≥ 50% of children are retrieval-augmented-memory), or content overlap (≥ 3 children in folder B clearly belong in folder A).
+- **Choose canonical:** prefer (a) the older folder (earlier `createdAt` / lower tree position), (b) the more populated folder, (c) the more standard name (matches the seed taxonomy in `outline-sort-inbox`). Move B's children into A, update A's index body (Step 4), then delete the now-empty B.
+- Each merge: children moves count against the move budget; the folder delete counts against the folder-op budget.
+
+### F0. Misc / To Triage drain (priority pass)
+
+Any folder whose title matches `Misc`, `To Triage`, `Misc / To Triage`, `Unsorted`, `Other`, `Various`, or similar catch-all naming is a **priority target**. These are escape hatches in `outline-sort-inbox` and accumulate noise. Every run should **leave them smaller than it found them**.
+
+- Process F0 folders early (after F9/F8 de-dup). Their children get extra effort:
+  - Always `fetch` the doc body (don't shortcut from title alone).
+  - If body lacks tags/summary, `WebFetch` the source URL — even if you'd skip that elsewhere.
+  - For every child, attempt to find a real home, **using its `#tags` as a strong signal** (a doc tagged `#rag` almost certainly belongs under `AI & ML/RAG`). Only leave it if you've genuinely tried and nothing fits even loosely.
+- A child that lands in a not-perfect-but-defensible folder beats one stuck in Misc forever — bias toward placing.
+- After draining, if a misc folder is empty or has ≤ 2 stragglers, apply F3 and consider deleting it.
+- Misc-drain moves draw from a reserved **half the move budget** before F1–F7 work starts deducting from the same pool.
+
+### F1. Overlap (merge candidate)
+
+Folded into **F8** above — overlap is the near-duplicate case of folder merging. Use F8's canonical-choice rules.
+
+### F2. Oversized (split candidate)
+
+A folder with **> 15 direct children** (including sub-folders) **and** evident sub-themes.
+
+- Identify sub-themes by clustering child titles (and their `#tags` — co-occurring tags are a strong clustering signal). Need ≥ 3 distinct themes with ≥ 3 children each before splitting.
+- Splits create new sub-folders *under* the parent (depth +1). Never split if it would push children past depth 4.
+- If themes are weak (no clean cluster), leave it — don't invent sub-structure for its own sake.
+
+### F3. Under-used (inline candidate)
+
+A folder with **≤ 2 content children** and **0 sub-folders**, whose children fit naturally in the parent or a sibling.
+
+- Inline = move the children up to the parent (or a fitting sibling), then delete the now-empty folder doc.
+- Exception: keep an explicit "buckets we expect to fill" placeholder (e.g. user pre-created `Germany / Cars & Mobility`). Heuristic: if the folder doc body has user-written description text (≥ 1 sentence beyond an autogenerated `> Notes about …` line), treat it as intentional and skip.
+
+### F4. Misfiled documents
+
+A *content document* whose subject clearly belongs in a different folder than where it sits.
+
+- Read the doc's body via `fetch` (cheap — usually has `## Summary` and a `Tags:` line).
+- **Tags are the primary signal.** If the `#tags` (and summary) point unambiguously at folder X but the doc lives in folder Y, move it to X. Cross-check with the Tag Index (Step 8): if most docs carrying this doc's dominant tag live in X, X is the right home.
+- If the body is opaque (bare URL, no summary), `WebFetch` the URL with a focused prompt: *"In one phrase, what topic is this for a personal knowledge base? Examples: 'Go internals', 'Wegzugsteuer / German exit tax', 'AI agents'."* Use the answer to pick a folder.
+- Bias against moving: act only when the destination is clearly better. A "maybe" stays put.
+
+### F5. Depth violation
+
+Any node at L5 or deeper. Flatten by promoting it one or two levels until it sits at L4 or shallower. Pick the new parent that best matches the topic; if none fits, promote to the nearest topical ancestor.
+
+### F6. Naming inconsistency
+
+Sibling or top-level folders with inconsistent capitalization / separators (e.g. `AI & ML` next to `3d printing`). Canonical style: **Title Case, with `&` or `/` for combos, no kebab-case for folder names** (kebab-case is reserved for `#tags`). Rename via `update_document` (title only — body untouched). Renames count as folder ops.
+
+### F7. Index drift (folder description out of date)
+
+If a folder doc's body says `> Notes about Go programming` but the folder now holds mostly Rust+Python posts, the description misleads. **Allowed exception to the read-only rule:** rewrite the folder doc body — *only* the body — to a one-line description matching current contents. Keep it short; no child list (Outline renders children automatically).
+
+### F10. Tag enrichment (additive — content docs)
+
+A content doc that *belongs to* a tag but doesn't carry it. The skill may **append** the missing tag(s) to the doc's `Tags:` line. Skipped under `no-enrich`.
+
+- **Prefer established tags, but you may coin new ones when clearly warranted.** Reuse a tag that already appears elsewhere whenever one fits. When none fits, you *may* introduce a new tag for a clear, reusable axis — place names (`#estonia`, `#tallinn`), named tools/people/products (`#wanderlog`, `#feynman`), or unambiguous topics (`#exit-tax`). Coin conservatively: a good tag is reusable across multiple docs, not a one-off label for a single item. **Log every newly-coined tag** (one not previously present anywhere) so the namespace stays auditable; if you're unsure a tag is worth coining, skip it and note the doc under `### Tags — needs human review`.
+- **Casing & format: lowercase `#kebab-case`.** Every tag you add is lowercase kebab-case (the documented convention — kebab-case is reserved for tags). **Dedupe case-insensitively:** if the doc already carries the tag in any casing (e.g. `#Travel`), treat it as present — don't add a cased variant. Never rewrite or re-case the doc's *existing* tags (append-only).
+- **High-confidence triggers only:**
+  - The doc was just moved into a folder whose canonical tag it lacks (moved into `AI & ML/RAG` → ensure `#rag`).
+  - The summary/body unambiguously evidences a topic that maps to an existing tag the doc is missing (a post clearly about MCP, tagged `#ai` but not `#mcp`, while `#mcp` is an established tag).
+  - The Tag Index shows a strong plurality: most docs sharing this doc's dominant existing tag also carry tag T, and this doc plausibly fits T.
+- **Append-only, surgical, idempotent.** Edit *only* the `Tags:` line via `update_document` with `editMode: "patch"` (`findText` = the exact existing `Tags:` line, `text` = that line with the new tags appended). Never remove or reorder existing tags; if a candidate tag is already present, do nothing.
+- **Target up to 4 tags total per doc.** Append established missing tags until the doc carries **4 tags**. **Skip docs already at ≥ 4 tags** — they're well-tagged; never push past 4 and never remove tags from docs that already exceed it. (A ≥4-tag doc missing its folder-canonical tag is a rare edge — leave it, optionally note under review.)
+- **No `Tags:` line at all?** Don't fabricate the whole metadata block (summary/tags authoring is the sorter's job). Either skip, or — only if the topic is unambiguous — insert a single `Tags: #t1 #t2` line and nothing else, and log it as `inserted` rather than `appended`. When unsure, leave it for the sorter.
+- **Bias toward not tagging.** A "maybe" stays untagged. Wrong tags pollute both search and the Tag Index.
+- Counts against the **tag-enrichment budget** (25/run).
+
+## Step 2 — Build a plan
+
+After classification, produce an ordered action list. Order matters — de-dup first so nothing downstream operates on redundant copies, tag index last so it reflects the settled tree:
+
+1. **F9 duplicate-doc archiving** — collapse exact duplicate content docs.
+2. **F8 duplicate/overlapping-folder merges** — including the stray `Dreaming Timeline`.
+3. **F0 misc-drain moves.**
+4. **Creates** (new sub-folders for splits; new merge-target folders if both sources are retired).
+5. **Renames** (so later moves reference canonical names).
+6. **Moves** (split children into new homes; F4 misfiled docs to correct folders).
+7. **Index-body updates** (after children settle, descriptions reflect reality).
+8. **Empty-folder deletes** (only after verified empty — includes emptied misc folders and the stray Dreaming Timeline).
+9. **Tag enrichment** (F10 — after docs reach their final folders, so folder-canonical tags apply).
+10. **Tag Index refresh** (Step 8 — last, so it indexes the freshly enriched state).
+
+Do **not** print the plan or wait for confirmation — this is a cron job. Hold it in memory and proceed to Step 3.
+
+If `dry-run`, skip execution: create one child doc in `Dreaming Timeline` titled `Proposed run YYYY-MM-DD HH:MM [dry-run]` with the Step 5 body template populated as a projection (including the would-be Tag Index changes), then exit. Call no mutating tool.
+
+## Step 3 — Execute
+
+Apply actions in plan order. After **each** action:
+
+1. Verify success (the MCP tool returns the updated doc).
+2. Append a single-line entry to the in-memory log buffer (flushed to the run's child doc in Step 5).
+3. Increment the relevant category counter. If that category's budget (rule #5) is exhausted, stop *that* category and continue the rest. If any category hit its cap with work remaining, the run's final `**Status:**` is `capped`; otherwise `complete`.
+
+Re-derive a folder's children after a batch of moves into it (Outline returns canonical order; a follow-up split decision may need it). After F9 archives, drop the archived IDs from your in-memory skeleton so later passes ignore them.
+
+### Failure handling
+
+- **5xx / 404** — retry once after 2s. If still failing, skip and log `FAILED: <action> — <error>`. Continue.
+- **Move would exceed depth 4** — skip; log `SKIPPED depth-cap: <action>`.
+- **Folder delete fails because non-empty** — re-list children; if any remain, leave the folder and log `KEPT non-empty: <folder>`.
+- **Archive fails** — retry once; if still failing, skip and log. Never escalate to a hard delete.
+- **Permission error** — abort cleanly. Create/update the run's child doc with an `### Aborted — permission error` section, then exit.
+
+## Step 4 — Update folder index bodies (after merging or splitting)
+
+After a merge or split, the affected folder's description should match its new contents. Rewrite via `update_document` with `editMode: "replace"`:
+
+```markdown
+> <one-line description of what this folder holds>
+```
+
+Examples:
+- `> Notes on AI agents, MCP, and tool-using LLM systems.`
+- `> German bureaucracy: taxes, immigration, banking.`
+
+Don't list child docs (Outline renders them). Don't add tags. Don't add a "last updated" line. This and the Tag Index (Step 8) are the **only** body edits allowed outside the run's child doc.
+
+## Step 5 — The Dreaming Timeline folder
+
+The Dreaming Timeline is a **folder** (a top-level doc inside SortedInbox titled `Dreaming Timeline`) whose **children are per-run log docs**. Each run creates exactly one child; the folder grows as a flat list of dated sessions. This caps how much history any run reads — only the most-recent child is load-bearing (Step 7).
+
+### Folder doc body (write-once when creating the folder)
+
+```markdown
+> Per-run logs from the `outline-dream` skill. One child doc per session, newest at the top of the folder. Don't edit by hand.
+```
+
+If the folder already exists with arbitrary body content (a legacy single-doc log), **leave the body alone** — just create children underneath.
+
+### Per-run child doc
+
+Create one new doc per run as a child of the Dreaming Timeline folder (`create_document` with `parentDocumentId` = folder ID).
+
+- **Title:** `Run YYYY-MM-DD HH:MM` (executed) or `Proposed run YYYY-MM-DD HH:MM [dry-run]`. Timestamp = run start, **UTC**, so titles sort lexically by recency.
+- **Body** (prefer setting on `create_document`; otherwise one `update_document`):
+
+```markdown
+**Before:** <content docs> docs, <folders> folders, max depth <d>, <k> dup clusters
+**After:** <…> docs, <…> folders, max depth <…>, <…> dup clusters
+**Status:** <complete | capped>
+**Budgets:** <moves>/100 moves, <folderops>/6 folder ops, <archives>/30 archives, <enriched>/25 enrich, <tagwrites>/12 tag writes
+**Actions:** <created> created, <moved> moved, <renamed> renamed, <merged> merged, <deleted> deleted, <archived> archived, <enriched> tagged, <tagidx> tag-index, <failed> failed
+
+### Duplicate docs archived
+- `<title>` — kept `<kept-id>`, archived `<id>`[, `<id>`] — F9 same URL
+
+### Merged folders
+- `<source folder>` → `<target folder>` (<n> children moved) — F8 <exact dup | overlap reason>
+
+### Created
+- `<path>` — <reason>
+
+### Renamed
+- `<old path>` → `<new path>` — <reason>
+
+### Moved
+- `<doc title>`: `<from path>` → `<to path>` — <reason>
+
+### Deleted (empty folders)
+- `<path>` — <reason>
+
+### Index updates
+- `<folder>` — description updated
+
+### Tags added
+- `<doc title>` — appended `#<tag>`[ `#<tag>`] — F10 <moved into folder | summary evidences | tag-index plurality>
+
+### Tag Index
+- `#<tag>` — created (<n> members) | refreshed (<n> members, ±<delta>) | removed (below threshold)
+
+### Duplicates — needs human review
+- `<title>` ×<n>: `<id>`,`<id>`,… — same title, different URLs / unsure
+
+### Tags — needs human review
+- `<doc title>` — looks like new axis `#<candidate>` (not in vocabulary) — F10 left untagged
+
+### Failed / skipped
+- `<action>` — <error or skip reason>
+```
+
+Use one-line bullets. `<reason>` ≤ 12 words, referencing the tag (e.g. `F9 same source URL`, `F8 overlap with AI & ML/Agents`, `F3 inline — only 1 child`, `F4 misfiled — tags say #rag`, `F10 appended #mcp — moved into AI & ML/Agents`). Omit empty sections.
+
+For `dry-run`: identical, but `**Status:**` becomes `proposed`, the **Before/After** line uses **After (projected):**, and bullets describe would-be actions.
+
+### Why per-session children
+
+A single growing log forced every run to fetch and rewrite the whole history — context bloat and write amplification. Per-session children keep the full audit trail browsable while bounding per-run I/O to one read (the watermark) and one write (this doc).
+
+## Step 6 — Final summary (one stdout line)
+
+Cron captures one line at the very end:
+
+```
+outline-dream YYYY-MM-DD HH:MM: <created>c <moved>m <renamed>r <merged>x <deleted>d <archived>a <enriched>e <tagidx>t <failed>f [capped] — see Dreaming Timeline
+```
+
+Append ` capped` only when a budget was hit with work remaining. Examples:
+- `outline-dream 2026-06-05 04:00: 2c 41m 1r 1x 3d 5a 9e 8t 0f — see Dreaming Timeline`
+- `outline-dream 2026-06-05 04:00: 0c 100m 0r 0x 0d 0a 0e 0t 0f capped — see Dreaming Timeline`
+
+No-op (watermark match, Step 7):
+```
+outline-dream YYYY-MM-DD HH:MM: no-op — SortedInbox unchanged since <prev run>
+```
+
+`tags-only` run:
+```
+outline-dream YYYY-MM-DD HH:MM: tags-only — <enriched>e <tagidx>t <failed>f — see Dreaming Timeline
+```
+
+Aborted:
+```
+outline-dream YYYY-MM-DD HH:MM: ABORTED — <reason> — partial log in Dreaming Timeline
+```
+
+Nothing else on stdout. No paragraphs, no questions.
+
+## Step 7 — Watermark (read only the most recent child doc)
+
+Derive the watermark from a single source: the **most recent child doc** in the Dreaming Timeline folder. Older children are never read.
+
+1. `fetch` **only that one child doc** by ID. (Listing the folder's children for the newest title/`createdAt` is fine — metadata, not body.)
+2. Parse its **Status:** and **After:** line — extract `<doc count>`, `<folder count>`, `<max depth>`, `<dup clusters>`.
+3. **If Status is `capped`** (a prior run left work) **or `proposed`** (a `dry-run`, never executed) → ignore the watermark, do a real run.
+4. Otherwise (`complete`) compute the same numbers for the current **content tree** (excluding `Dreaming Timeline` *and* `Tag Index`, per Step 0).
+5. **No-op test:** if doc count, folder count, max depth, and dup-cluster count all match the previous After line **and** the set of content-folder titles matches **and** the `Tag Index` folder exists and is non-empty → skip. Print the no-op line (Step 6) and exit. Do **not** create a child doc for no-ops.
+   - **Exception:** if `Tag Index` is missing or empty (first run after this skill version, or it was deleted), do **not** treat as no-op — proceed at least far enough to build the Tag Index (Step 8), even if structural work is otherwise idle.
+6. Otherwise proceed.
+
+If the Dreaming Timeline folder is brand new with no children, there is no watermark — proceed normally.
+
+### Why only the most recent child
+
+A `complete` child's **After** line *is* the on-disk content state at the moment that run ended, and nothing else writes SortedInbox structure between runs (the two skills never run in parallel). A user hand-edit shows up as a stat mismatch, which correctly forces a real run. New tagged docs added by `outline-sort-inbox` change the doc count → not a no-op → the Tag Index gets refreshed. So a true no-op also means tag membership is unchanged and the index is still valid.
+
+## Step 8 — Tag Index (horizontal layer)
+
+The vertical folder tree puts each doc in exactly one place. The **Tag Index** is the orthogonal view: a skill-owned `Tag Index` folder whose children are per-tag **map-of-content (MOC)** docs, each titled `#<tag>` and listing links to every content doc carrying that tag — wherever it lives in the tree. Skipped entirely under `no-tags`.
+
+This is a *derived, regenerable* layer. It is excluded from all content stats and from the watermark; deleting it loses nothing but a rebuild.
+
+### Building / refreshing
+
+1. **Ensure the folder.** If `Tag Index` doesn't exist, create it (top-level in SortedInbox) with body:
+   ```markdown
+   > Auto-generated map-of-content, one doc per #tag, linking docs across the tree. Maintained by `outline-dream` — don't edit by hand.
+   ```
+2. **Decide which tags to (re)index this run** — bounded by the 12 tag-write budget, prioritized:
+   - **Changed tags first:** any tag carried by a doc this run moved, archived, or merged-through. Their member lists are now stale.
+   - **New qualifying tags:** tags with **≥ 6 member docs** that have no MOC doc yet. (Threshold avoids a flood of tiny indexes; tune down only if the collection is small.) To discover candidates cheaply, draw tags from the docs touched this run and from a small rotating sample of the collection — do **not** enumerate every tag every run.
+   - **Stale refresh:** if budget remains, refresh the least-recently-updated existing MOC docs.
+3. **For each chosen tag:** `list_documents query="#<tag>"` (collection-scoped, `limit` up to 100) to get current members with their `url` and `title`. Then write the MOC doc (`create_document` or `update_document` with `editMode: "replace"`):
+   ```markdown
+   > <n> docs tagged #<tag>, across <m> folders.
+
+   - [<doc title>](<doc url>) — `<folder path>`
+   - [<doc title>](<doc url>) — `<folder path>`
+   ```
+   - List up to ~50 members (most-recent first); if more, add a final line `> …and <k> more — search "#<tag>" in Outline.`
+   - Group or order by folder path so the cross-cutting spread is visible.
+   - **Co-location signal:** if a tag's members are ≥ ~80% in one folder, note nothing special; if they're scattered with a clear plurality elsewhere, that plurality is a hint for F4 misfile checks on the stragglers in *future* runs (record under `### Duplicates — needs human review`? no — just leave it; don't act on tag-derived guesses aggressively).
+4. **Prune:** if an existing MOC doc's tag now has **< 3** members (tag faded, docs archived/retagged), delete that MOC doc (counts as a tag write) and log it `removed (below threshold)`. Never let the Tag Index accumulate dead entries.
+
+### Constraints specific to the Tag Index
+
+- MOC docs are **the only place** links to many content docs are assembled — they never modify the content docs themselves.
+- Keep depth ≤ L2 (`SortedInbox → Tag Index → #tag`). Never nest tags.
+- The Tag Index never gates a no-op except via the "missing/empty" exception in Step 7.
+- On `tags-only` runs, do Step 0, **F10 tag enrichment**, Step 8, and the run log; skip all structural classification, de-dup, and moves (F0–F9).
+
+## Examples — what a good action looks like
+
+Good (concrete, classified, traceable):
+
+```
+F9 dup-archive: "Дэн Симмонс — Гиперион" ×3 → keep <id1> (richest body), archive <id2>,<id3> — same source URL
+F8 merge (exact dup): stray empty "Dreaming Timeline" → canonical; delete empty stray
+F8 merge (overlap): "AI & ML/Memory" → "AI & ML/RAG" (4 children moved, names overlap on retrieval-aug topics)
+F3 inline: "Languages/English/Idioms" (1 child) → "Languages/English"; delete empty parent
+F4 misfiled: "cognee — open-source AI memory": Engineering/Databases → AI & ML/RAG (tags: #rag #memory)
+F5 depth: "Germany/Bureaucracy/Taxes/Wegzugsteuer/Calculator" (L5) → promote to L4 under Wegzugsteuer's parent
+F10 enrich: "Claude Code hooks deep-dive" — appended #mcp (already tagged #ai #claude-code; #mcp established)
+Tag Index: #rag refreshed (12 members across AI & ML/RAG, Engineering) ; #self-hosted created (8 members)
+```
+
+Bad (vague, unsafe, not actionable):
+
+```
+Reorganize Engineering folder
+Clean up overlapping topics
+Delete duplicate posts            ← never hard-delete content; archive confirmed dups only
+Tag everything / invent new tags  ← enrichment is confident + append-only + vocabulary-bounded
+Rewrite the summary to add tags   ← only the Tags: line may change; prose stays untouched
+```
+
+## Explicit non-goals
+
+- Never touches Inbox, dynalist/*, or any collection besides SortedInbox.
+- Never edits content-doc titles, summaries, or prose, and never *removes* or reorders tags. The single content-body write it performs is **appending** `#tags` to the `Tags:` line (F10 — append-only, vocabulary-bounded, up to 4 tags total/doc, behind `no-enrich`). Horizontal structure still lives mainly in the Tag Index, not by rewriting content.
+- Never **hard-deletes** a content document. Confirmed exact duplicates are **archived** (reversible); everything else stays.
+- Never creates folders deeper than 4 levels (Tag Index stays at ≤ 2).
+- Never runs in parallel with `outline-sort-inbox`.
+- Never moves documents *out of* SortedInbox into other collections.
+- Never contacts external services except WebFetch on a doc's stored URLs when classification is otherwise impossible.
+
+## Why these constraints
+
+- **Near-read-only on content (append-only tags), archive-not-delete for dups** keeps responsibilities clean: `outline-sort-inbox` owns content authoring, `outline-dream` owns structure. The one content write — appending already-established `#tags` (F10) — is idempotent and non-destructive, so it can't clobber the sorter's prose or summaries; archiving (vs deleting) duplicates means every de-dup is one click to undo.
+- **Tag Index as a derived layer** gives horizontal, cross-folder views without violating the read-only rule or letting Outline's lack of native tags become a dead end — and because it's regenerable, a bad refresh costs nothing.
+- **Depth cap of 4** matches what's navigable in Outline's sidebar.
+- **Independent per-category budgets** stop one noisy category (a wave of duplicates, a huge tag) from starving structural work, and bound worst-case blast radius — every action is logged with source/destination (or kept/archived IDs), so any run is mechanically reversible from its child doc.
+- **Per-session child docs** are the audit trail; no single run reads more than one, so context stays bounded as history grows.
