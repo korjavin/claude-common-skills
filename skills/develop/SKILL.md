@@ -50,7 +50,23 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 
 ## Step 2 — route by size
 
-- **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): use **ralphex**. Author the plan yourself from the bead's spec directly into `docs/plans/` (ralphex-plan's format — an epic bead's children become the plan's tasks; in subagent mode you cannot answer ralphex-plan's interactive questions, so the bead spec must carry the decisions — anything it doesn't decide is a BLOCKED, not a guess). Then launch `ralphex` on the plan and **monitor it to completion** — poll its progress file/log until the run finishes; do not return while it is still executing. Ralphex carries its own review loop, so skip Step 4; pick up at Step 5 for each branch it produces.
+- **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): use **ralphex**. Author the plan yourself from the bead's spec directly into `docs/plans/` (ralphex-plan's format — an epic bead's children become the plan's tasks; in subagent mode you cannot answer ralphex-plan's interactive questions, so the bead spec must carry the decisions — anything it doesn't decide is a BLOCKED, not a guess). Then launch `ralphex` **detached** and **monitor it to completion**; do not return while it is still executing.
+
+  **Never launch ralphex via the Bash tool's `run_in_background`** — the harness reaps background tasks after 1h (SIGTERM → ralphex logs `Failed: ... (1h0m) ... context canceled`), and foreground Bash is capped at 10 min. Detach it from the harness process tree instead, from `<worktree>`:
+
+  ```bash
+  mkdir -p .ralphex && (nohup ralphex --task-model opus --review-model opus docs/plans/<plan>.md > .ralphex/ralphex.log 2>&1 < /dev/null &) ; sleep 2; pgrep -fl 'ralphex --task-model'
+  ```
+
+  (The `( … &)` subshell double-forks, so ralphex is reparented to launchd and outlives the Bash call; `nohup` covers SIGHUP. No `setsid` on macOS.)
+
+  Then poll in short foreground Bash calls (each under the 10 min cap) until the progress file's last line starts with `Completed:` or `Failed:`:
+
+  ```bash
+  for i in $(seq 1 50); do tail -1 .ralphex/progress/progress-<plan>.txt | grep -qE '^(Completed|Failed):' && break; sleep 10; done; tail -5 .ralphex/progress/progress-<plan>.txt
+  ```
+
+  (`Failed:` with `context canceled` means something still killed it — report it, do not silently relaunch.) Ralphex carries its own review loop, so skip Step 4; pick up at Step 5 for each branch it produces.
 - **Small/medium** (a real feature or multi-file change that fits one focused pass): **implement it yourself** on an opus-class model, in `<worktree>`. If your session is not on an opus-class model, delegate the coding to one `Agent` subagent (`isolation: "worktree"`, `model: "opus"`) whose prompt carries the spec **plus the implementation contract: create a branch, implement, verify locally per Step 3, COMMIT the work, and report back branch name + worktree path**. When it reports, **its worktree and branch become `<worktree>`/`<branch>` for every step below**; do not review or push the one you made, and confirm its branch actually has commits before proceeding. Either way it is one unit of work, not a fleet.
 - **Trivial** (one-touch fix that fits in your head): fix it in `<worktree>`, run the relevant test/build, **commit it**, then go to Step 4.
 

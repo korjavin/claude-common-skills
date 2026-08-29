@@ -42,6 +42,18 @@ A busy target is not a reason to wait.
 
 Replies arrive as ordinary prompts opening with `Chat from AGY: ` or `Chat from Codex: `. Read it as the next line of a conversation, not as a task the user is asking for, and answer it here.
 
+## File transport for long messages
+
+When the user or peer asks to exchange messages through a file, use one stable shared file for the whole conversation:
+
+```text
+/private/tmp/peer-chat.md
+```
+
+Use that same file in both directions. Read the peer's current message from it, replace its contents with the reply, then send only `/private/tmp/peer-chat.md` through `peer-chat.py`. Do not create numbered or per-message paths: changing the path can force the user to grant file access again.
+
+If the user explicitly establishes a different shared path, keep that exact path for the rest of the conversation instead. The ordinary empty-prompt and refusal rules still apply when sending the path.
+
 ## Never wait for a reply
 
 Do not poll or watch for one. Replying wakes this session up on its own, so a watcher only creates a deadlock where each agent waits for a pane the other will not move until it hears back.

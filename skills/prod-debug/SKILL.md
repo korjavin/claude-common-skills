@@ -7,8 +7,8 @@ description: Debug issues on the production server over SSH. Trigger when the us
 
 The user runs this project's containers on a personal server reachable over SSH:
 
-- **Host:** `pet.kfamcloud.com`
-- **Container management:** Portainer UI + `sudo podman` on the host
+- **medicationtrackerbot cloud (`cmd/cloud`, the shipped product):** `root@cloud.myhealthbot.ai` — plain `docker` (no podman, no sudo). Containers: `medtracker-cloud` (app, DB volume `cloud-server_cloud_data` → `/app/data/cloud.db`, WAL mode), `medtracker-cloud-telegram-api`, `cloud-traefik`, `cloud-portainer`. No `sqlite3` binary on the host — copy `cloud.db` + `-wal` + `-shm` to `/tmp` and query with `python3 -c 'import sqlite3'` (`mode=ro`), then delete the copy. Container logs rotate on redeploy (`docker inspect --format {{.State.StartedAt}}`); the oplog is compacted into snapshots, so old per-record write history is gone.
+- **Legacy/other projects host:** `pet.kfamcloud.com` — Portainer UI + `sudo podman`.
 - **Access:** SSH key already configured (no password prompt expected)
 
 This skill exists because the user is tired of repeating these details every time. Use it whenever they ask to debug, inspect, or reproduce something against production.

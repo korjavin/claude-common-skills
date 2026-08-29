@@ -22,10 +22,13 @@ You are the **Delivery Supervisor** and the owner's primary interface. The owner
 
 ```bash
 which gh && which bd && which codex && which jq && gh auth status   # codex: developers review with it
-bd dolt pull
+bd dolt remote list                    # empty output → this project's bd DB is local-only
+bd dolt pull                           # skip if local-only
 git fetch origin                       # keep local refs honest; repeat at the top of each loop cycle
 bd human list                          # parked beads from earlier sessions — see Parking below
 ```
+
+**If `bd dolt remote list` prints no remote, this project's bd DB is local-only: skip every `bd dolt pull` and `bd dolt push` in this skill.** There is no shared DB to race against, so the sync guards below (pull-before-read, push-after-write, "check the push succeeded") have nothing to guard — `bd close`/`bd update` alone are the whole write. Everything else is unchanged; the claim is still the race guard between concurrent sessions on this machine.
 
 (`ralphex` is only needed when a huge bead is in scope — check for it before routing one.)
 
@@ -187,7 +190,7 @@ med-101.5   —           —     parked           review           Telegram'd: 
 
 ## Standing guardrails
 
-1. **Dolt sync:** `bd dolt pull` before every state read or write; `bd dolt pull && bd dolt push` after every write. The startup pull covers nothing later.
+1. **Dolt sync (only when a Dolt remote exists — see Preflight):** `bd dolt pull` before every state read or write; `bd dolt pull && bd dolt push` after every write. The startup pull covers nothing later. Local-only DB → drop all of it.
 2. **Opus-class for coding; Fable-class for architecture.** Cheaper models only for read-only research.
 3. **Merge commits only.** Never `--squash` or `--rebase`.
 4. **Preserve worktrees** until the branch is pushed; never respawn over a worktree holding work.
