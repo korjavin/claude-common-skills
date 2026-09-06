@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: The owner's primary interface for delivery — autonomously supervise developer agents to deliver bd (beads) work end-to-end at a chosen concurrency. Takes feature requests or ready beads, spawns an architect subagent (Fable-class) when planning is needed, schedules merge-disjoint tracks, supervises developers (who follow the develop skill per bead), verifies PRs, merges when CI is green, closes beads, and pings the owner via Telegram (omniagent-telegram-alert) only when blocked on a decision. Trigger when the user runs "/orchestrate", "/orchestrate N", "/orchestrate N <epic-id>", asks to "deliver feature X", "orchestrate the backlog", or "work the epic". Requires bd, gh, and git worktrees.
+description: The owner's primary interface for delivery — autonomously supervise developer agents to deliver bd (beads) work end-to-end at a chosen concurrency. Takes feature requests or ready beads, spawns an architect subagent (Fable-class) when planning is needed, schedules merge-disjoint tracks, supervises developers (who follow the develop skill per bead, delivering with the session's agent — claude by default, overridable — and reviewing via revmux when the project has `.revmux/`), verifies PRs, merges when CI is green, closes beads, and pings the owner via Telegram (omniagent-telegram-alert) only when blocked on a decision. Trigger when the user runs "/orchestrate", "/orchestrate N", "/orchestrate N <epic-id>", asks to "deliver feature X", "orchestrate the backlog", or "work the epic". Requires bd, gh, and git worktrees.
 ---
 
 # /orchestrate — deliver work, unsupervised
@@ -12,11 +12,13 @@ You are the **Delivery Supervisor** and the owner's primary interface. The owner
 ## Invocation & Concurrency
 
 ```
-/orchestrate [N] [epic-id]
+/orchestrate [N] [epic-id] [--agent <name>] [--revmux-profile <name>]
 ```
 
 - `N` — max concurrent developer agents (default: `2`).
 - `epic-id` — optional scope; only work ready issues under that epic. Omitted → the ready backlog, or whatever the owner asked for in words.
+- `--agent` — the delivery agent developers write code with on the revmux route (`claude` default; `agy`, `muse`, `codex`, …). Also honoured when the owner says it in words ("deliver with agy").
+- `--revmux-profile` — the revmux `--profile` every review round uses. Resolved in Preflight when omitted.
 
 ## Preflight
 
@@ -30,7 +32,9 @@ bd human list                          # parked beads from earlier sessions — 
 
 **If `bd dolt remote list` prints no remote, this project's bd DB is local-only: skip every `bd dolt pull` and `bd dolt push` in this skill.** There is no shared DB to race against, so the sync guards below (pull-before-read, push-after-write, "check the push succeeded") have nothing to guard — `bd close`/`bd update` alone are the whole write. Everything else is unchanged; the claim is still the race guard between concurrent sessions on this machine.
 
-(`ralphex` is only needed when a huge bead is in scope — check for it before routing one.)
+**Revmux route (once per session).** `test -d .revmux` in the main checkout → the project has its own review rules and developers take the develop skill's Step 2b (deliver with `<agent>`, revmux review, fix loop ≤3) for huge beads instead of ralphex; `which revmux` must succeed. Resolve `<revmux-profile>` now, so no developer has to ask: the owner's flag or words → the project pin (`revmux config` → `profile` knob whose `source` is not `default`) → a note in `CLAUDE.md`/`.revmux/profile.md` → else run the revmux skill's `scripts/preflight.sh comprehensive` and take `comprehensive` when it passes, `claude-only`/`codex-only` when only that binary is present. You are not interactive, so you decide and record the pick and its source on the status board; Telegram only when `.revmux/` defines custom profiles and nothing above chooses between them. A developer that returns `NEED-PROFILE` means you skipped this — resolve, then re-spawn it with the profile in the prompt.
+
+(`ralphex` is only needed when a huge bead is in scope **and** there is no `.revmux/` — check for it before routing one.)
 
 **Pick a session-unique actor** — `orch-<date>-<hhmm>` — and pass it as `--actor <name>` on **every** bd write this session makes (claim, update, close, park). Without it, every session on this machine resolves to the same `git user.name`, `--claim` is idempotent across sessions, and none of the claim/orphan machinery below can tell two sessions apart. (An `export` won't survive between shell calls — put the flag on each command.)
 
@@ -89,14 +93,17 @@ Spawn an `Agent`: `isolation: "worktree"`, `run_in_background: true`, `model: "o
 
 ```markdown
 You are a developer agent. Invoke the develop skill for bd issue `<id>` and follow it
-in subagent mode: deliver exactly this bead — size-route (huge → ralphex, small/medium →
-implement + codex review, trivial → direct), verify locally (NEVER frontend tests locally —
+in subagent mode: deliver exactly this bead — size-route (huge → ralphex, or the revmux loop
+since this repo has `.revmux/`; small/medium → implement + codex review, trivial → direct),
+delivery agent: <agent>; revmux profile: <revmux-profile> (use these, do not re-resolve them),
+verify locally (NEVER frontend tests locally —
 CI is the frontend gate), open a draft PR with --body-file, drive CI green, mark it ready,
 and report back: PR number, branch, worktree path, files touched, verification, deferrals,
-and any OUTSTANDING codex findings. Do NOT merge, do NOT close the bead. The bead is
+and any OUTSTANDING codex or revmux findings. Do NOT merge, do NOT close the bead. The bead is
 ALREADY CLAIMED — skip develop's claim commands (but still read the bead, CLAUDE.md, and
 the code, and still create your branch). If the bead is ambiguous, do not guess — return
-BLOCKED with your questions and touch no bd state; I park and escalate.
+BLOCKED with your questions and touch no bd state; I park and escalate. Return NEED-PROFILE
+only if the revmux profile above is missing.
 
 Issue details:
 <output of bd show id>
@@ -111,7 +118,7 @@ Stay responsive — never block the loop on one track:
 - **Completion = a real `<task-notification>` for its task id.** Nothing else — in particular `sys_read_inbox` emits "sub-agent task completed" notices ~1 min after spawn while the agent is still running. Audited 2026-08-06: all 18 "silent no-op" verdicts came from that inbox message; zero were real. Don't poll the inbox for executor status.
 - **Genuinely stuck** (>5 min, no disk activity, silent transcript): inspect the worktree — `git -C <worktree> status`, `git -C <worktree> log origin/master..HEAD`. Work on disk → `SendMessage` targeted guidance to resume; **never respawn when the worktree has work** (respawn deletes it). Empty worktree → restate the first step inline.
 - **Crashed / fatal error:** inspect the worktree FIRST (a crash is exactly when partial commits sit there). Work on disk → resume via `SendMessage`. Truly empty → relaunch once with adjusted guidance. Second failure → **park the bead** (below), free the slot, and **Telegram the owner**. Never release a failed bead to `open` — `bd ready` would serve it straight back and the loop repeats forever.
-- **Finished-but-unshipped** (clean commits, exited without pushing/PR): take over the handoff — but a dead developer that reached its codex-review step is indistinguishable on disk from one that died before it, so **run the codex pass yourself first** (`cd <worktree> && git branch -f review-base origin/master && codex review --base review-base`, triage, fix). Then push and open the PR — write the body yourself first (`printf ... > /tmp/pr-body-<id>.md`; a developer that died early never created it), then `gh pr create --draft --body-file /tmp/pr-body-<id>.md` (never inline `\n` escapes). Drive it from Step 5.
+- **Finished-but-unshipped** (clean commits, exited without pushing/PR): take over the handoff — but a dead developer that reached its codex-review step is indistinguishable on disk from one that died before it, so **run the review pass yourself first** (`cd <worktree> && git branch -f review-base origin/master && codex review --base review-base`, triage, fix — or, on the revmux route, one revmux round per develop Step 2b; a `.revmux/tasks/<id>/` in the worktree shows which rounds already ran). Then push and open the PR — write the body yourself first (`printf ... > /tmp/pr-body-<id>.md`; a developer that died early never created it), then `gh pr create --draft --body-file /tmp/pr-body-<id>.md` (never inline `\n` escapes). Drive it from Step 5.
 - **Returned BLOCKED:** the developer only returns the questions — it touches no bd state. **You park the bead** (below) and Telegram the owner with the questions; refill the slot.
 
 **Parking.** Parking must survive this session ending — the owner's answer usually arrives after it is gone. A parked bead is *deferred* (status-hidden from `bd ready` no matter who holds it) and *labeled* (findable by any future session via `bd human list`):
@@ -136,7 +143,7 @@ When a developer reports its PR ready and CI green, verify independently: CI act
 1. CI is completely green.
 2. The diff meets the bead's acceptance criteria.
 3. The change stays within what the bead asked for — user-visible changes the bead itself specifies are fine; *unrequested* user-visible changes, new public APIs, or architecture decisions the beads never made are not.
-4. No valid codex findings are outstanding — a handoff report listing outstanding findings does not merge until they are fixed (send the developer back) or you verify them invalid yourself.
+4. No valid codex or revmux findings are outstanding — a handoff report listing outstanding findings does not merge until they are fixed (send the developer back) or you verify them invalid yourself.
 
 That is the whole rule — an unattended run needs no further authorization.
 
@@ -161,7 +168,7 @@ bd close <id> --reason="Merged in #<pr>"        # every bundled id, not just the
 bd dolt pull && bd dolt push
 ```
 
-**Check the push succeeded** — a rejected Dolt push leaves the close local-only, the bead reappears in `bd ready` next cycle, and a developer gets spawned onto already-merged work. On rejection: pull again and re-push. An **epic route** closes the epic *and* every child its plan delivered (a ralphex epic may land as several PRs — close each child as its PR merges, the epic when all are in). Refill the slot.
+**Check the push succeeded** — a rejected Dolt push leaves the close local-only, the bead reappears in `bd ready` next cycle, and a developer gets spawned onto already-merged work. On rejection: pull again and re-push. An **epic route** closes the epic *and* every child its plan delivered (a ralphex or revmux-loop epic may land as several PRs — close each child as its PR merges, the epic when all are in). Refill the slot.
 
 ## Escalation — Telegram, never a message into the void
 
