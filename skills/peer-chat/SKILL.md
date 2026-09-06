@@ -44,7 +44,20 @@ Replies arrive as ordinary prompts opening with `Chat from AGY: ` or `Chat from 
 
 ## File transport for long messages
 
-When the user or peer asks to exchange messages through a file, use one stable shared file for the whole conversation:
+Completion reports arrive truncated through the prompt transport — the label-prefixed chat line is collapsed to one paragraph and bounded. Do not send long reports (files touched, test output, sha, diffs) as inline chat. Use file transport instead.
+
+When the message is long, detailed, or would be truncated (roughly >400–500 characters, or any completion report), write the full text to a file under `/private/tmp/` and send only the path:
+
+1. Write the full message to `/private/tmp/peer-chat.md` for the shared conversation, or to a topic file such as `/private/tmp/peer-chat-<bead>.md` (e.g., `/private/tmp/peer-chat-dem-gcz.md`) for a per-delivery report. Use `/private/tmp/` — never the repo working tree.
+2. Send only the path (e.g., `/private/tmp/peer-chat.md`) through `peer-chat.py`:
+   ```bash
+   peer-chat.py --to agy --stdin <<'CHAT'
+   /private/tmp/peer-chat.md
+   CHAT
+   ```
+   The peer reads the file. Keep the path stable for the conversation — do not create numbered or per-message paths unless the delivery is a distinct report file under `/private/tmp/peer-chat-<topic>.md`.
+
+When the user or peer asks to exchange messages through a file, use the same stable shared file for the whole conversation:
 
 ```text
 /private/tmp/peer-chat.md

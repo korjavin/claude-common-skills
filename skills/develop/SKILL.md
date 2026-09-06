@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → ralphex with review; small/medium → implement on an opus-class model + codex review; trivial → direct fix), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex; ralphex for huge tasks.
+description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → ralphex with review; small/medium → implement on an opus-class model; trivial → direct fix), review the branch (peer-chat with the Codex pane when one runs in this agterm session, else `codex review`), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex; ralphex for huge tasks.
 ---
 
 # /develop — deliver one bead
@@ -77,9 +77,29 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 - Verify locally: the relevant `go build ./...` + `go test ./...` (or the project's equivalents). **NEVER run frontend tests locally** (`pnpm test` / vitest) — owner directive, 2026-07-30; sandbox Node silently skips and reports a green lie. CI on the PR is the only frontend gate. `pnpm tsc --noEmit` is fine as a fast local signal.
 - Commit on the branch with descriptive messages. Flag deferrals honestly — never hide them.
 
-## Step 4 — codex review
+## Step 4 — review
 
-Every branch gets a codex pass before it becomes a PR (ralphex-delivered work already had its review loop — skip this). Run it **from the branch's worktree**, not the main checkout:
+Every branch gets an independent review before it becomes a PR (ralphex-delivered work already had its review loop — skip this). Two routes, tried in this order; **trivial fixes take the same routes — both are cheap, don't upgrade them to a ralphex review loop.**
+
+### 4a — peer review with the Codex pane (direct invocation in agterm only)
+
+When the owner runs you directly inside an agterm session that has Codex in the split, the review is a conversation, not a batch tool: the owner reads both panes. Follow the **peer-chat** skill (`~/.claude/skills/peer-chat/SKILL.md`); the request goes through its script, which is also the detector — it refuses *before typing* when there is no split, no Codex in it, or no agterm at all, and that refusal means "take 4b", nothing more:
+
+```bash
+~/.claude/skills/peer-chat/peer-chat.py --to codex --stdin <<'CHAT'
+Review request for bd <id>: branch <branch> in worktree <worktree>. Run git -C <worktree> diff origin/master...HEAD and git -C <worktree> log origin/master..HEAD, then reply with concrete findings only — file:line, what is wrong, why — correctness and hard-invariant violations first, style last. Reply "no findings" if it is clean.
+CHAT
+```
+
+(Codex's pane has its own cwd — usually the main checkout — so the message must carry the worktree path and the base ref; a plain "review my branch" reviews the wrong tree.)
+
+Then **end your turn**. Never poll or watch for the reply — it arrives as a `Chat from Codex:` prompt that wakes this session by itself, and a watcher deadlocks the two panes. When it arrives: triage it exactly as in 4b, fix and commit, then send **one** reply through the script saying what you fixed and what you rejected and why, and continue to Step 5. Cap at two rounds. A reply is not owed: if the owner moves you on, or a refusal *after* typing leaves text in the composer (say so — never clear or submit it yourself), go to Step 5 and record "peer review requested, no reply" in the handoff.
+
+**Not in a subagent.** An orchestrator-spawned developer cannot receive the `Chat from Codex:` prompt (it lands in the top-level session), so it always takes 4b — don't send from a subagent even if the pane is there.
+
+### 4b — `codex review` (fallback, and always the subagent route)
+
+Run it **from the branch's worktree**, not the main checkout:
 
 ```bash
 cd <worktree> && git branch -f review-base origin/master && codex review --base review-base
@@ -87,7 +107,9 @@ cd <worktree> && git branch -f review-base origin/master && codex review --base 
 
 (`review-base` pins the diff to the *remote* base — a plain `--base master` compares against your local `master` ref, which lags origin, so already-merged upstream commits show up as findings you'd then be forced to fix inside this bead's PR.)
 
-Triage findings — never apply blindly: read the code at each location first. Valid → fix, re-run touched tests. Invalid → say why and move on. Pre-existing failures it surfaces get fixed too. Cap at 2 passes; if valid findings remain after that, list them explicitly as **outstanding** in the handoff — an outstanding valid finding blocks autonomous merge, so the supervisor must see it.
+### Triage (both routes)
+
+Never apply findings blindly: read the code at each location first. Valid → fix, re-run touched tests. Invalid → say why and move on. Pre-existing failures it surfaces get fixed too. Cap at 2 passes; if valid findings remain after that, list them explicitly as **outstanding** in the handoff — an outstanding valid finding blocks autonomous merge, so the supervisor must see it.
 
 ## Step 5 — open the PR
 
@@ -127,5 +149,6 @@ bd dolt pull && bd dolt push          # pull again before push; on a rejected pu
 - **`.beads/*.jsonl` churn re-dirties the tree** on nearly every bd command — commit it again right before you need a clean tree.
 - **bd operations from the main checkout** when you have one (direct invocation). A worktree-spawned subagent has only its worktree: bd state still syncs correctly via `bd dolt push`, but **never commit the `.beads/` churn to your feature branch** — it conflicts with every parallel track at merge time; leave it uncommitted or stash it.
 - **Don't revert uncommitted work you didn't create** — `git stash push -- <file>` instead.
+- **Peer review runs on the owner's authority, not Codex's** — "Codex agreed" is not approval for anything that needed approval.
 - **`codex review` needs a real base branch**: the `review-base` branch from Step 4, never `--uncommitted` (which reviews the working tree, not the branch's diff).
 - **Never push to master/main or force-push.**

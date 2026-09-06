@@ -15,17 +15,23 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 SUBMIT_DELAY = 0.15
-PROBE_TIMEOUT = 0.6
-RETRY_ATTEMPTS = 5
-RETRY_DELAY = 10.0
+# Claude Code can take longer than a single UI frame to redraw a newly typed
+# composer while it is processing tool output.  Keep the confirmation safety
+# check, but give that redraw time to arrive before withholding Return.
+PROBE_TIMEOUT = 3.0
+# Claude's background-agent status redraws can briefly move the terminal cursor
+# away from the composer even while the composer itself is empty.  Retry these
+# transient states quietly; callers only need the eventual delivery result.
+RETRY_ATTEMPTS = 41
+RETRY_DELAY = 1.0
 BOX_LINES = 40
 EMPTY_CURSOR_COLUMN = 2
 MIN_WRAPPED_PROBE = 40
 RULE_RE = re.compile(r"^\s*[─—-]{10,}\s*$")
 CODEX_PROMPT_RE = re.compile(r"^\s*›[\s ]*(.*?)\s*$")
 CLAUDE_PROMPT_RE = re.compile(r"^\s*❯[\s ]*(.*?)\s*$")
-AGY_PROMPT_RE = re.compile(r"^\s*[❯›>][\s ]*(.*?)\s*$")
-PASTED_RE = re.compile(r"\[Pasted Content \d+ chars?\]")
+AGY_PROMPT_RE = re.compile(r"^\s*[❯›>⟩][\s ]*(.*?)\s*$")  # ⟩ is Muse Code's prompt
+PASTED_RE = re.compile(r"^\[Pasted (?:Content \d+ chars?|text #\d+)\]")
 
 
 @dataclass(frozen=True)
@@ -40,11 +46,12 @@ PROFILES = {
     "claude": Profile("left", "claude", "claude", "\n"),
     "codex": Profile("right", "codex", "codex", "\t"),
     "agy": Profile("right", "agy", "agy", "\n"),
+    "muse": Profile("right", "muse", "muse", "\n"),
 }
 
 
 class PromptBlocked(RuntimeError):
-    """The target prompt is occupied before any text was written."""
+    """The target is not ready before any text was written."""
 
 
 def ctl(*args: str) -> str:
@@ -118,12 +125,13 @@ def target_profile(
 def runs(foreground: Any, command: str) -> bool:
     if not isinstance(foreground, list):
         return False
-    pattern = re.compile(rf"(?:^|[/\s]){re.escape(command)}(?:$|\s)")
+    pattern = re.compile(rf"(?:^|[/\s]){re.escape(command)}(?:$|[\s-])")
     return any(pattern.search(str(part)) for part in foreground)
 
 
 def has_target(info: dict[str, Any], profile: Profile) -> bool:
-    if not info.get("hasSplit"):
+    # A single-pane session (no split) is a valid LEFT target: its foreground IS the agent.
+    if not info.get("hasSplit") and profile.pane != "left":
         return False
     field = "foreground" if profile.pane == "left" else "splitForeground"
     return runs(info.get(field), profile.command)
@@ -145,7 +153,7 @@ def find_node(sid: str) -> dict[str, Any]:
 
 def require_target(sid: str, profile: Profile) -> str:
     info = find_node(sid)
-    if not info.get("hasSplit"):
+    if not info.get("hasSplit") and profile.pane != "left":
         raise RuntimeError(f"session {sid} has no split")
     if not has_target(info, profile):
         raise RuntimeError(
@@ -204,6 +212,8 @@ def detect_sender_label(
         sender_str = "AGY"
     elif runs(fg, "codex"):
         sender_str = "Codex"
+    elif runs(fg, "muse"):
+        sender_str = "Muse"
     else:
         sender_str = "Claude" if opposite_pane == "left" else "AGY"
     return f"Chat from {sender_str}: "
@@ -259,10 +269,13 @@ def codex_prompt_text(text: str) -> str | None:
 
 def claude_prompt_text(text: str) -> str | None:
     lines = text.splitlines()[-BOX_LINES:]
-    for index in range(len(lines) - 1, 0, -1):
+    for index in range(len(lines) - 1, -1, -1):
         match = CLAUDE_PROMPT_RE.match(lines[index])
-        if not match or not RULE_RE.match(lines[index - 1]):
+        if not match:
             continue
+        # Current Claude renders queued messages immediately before the lower
+        # divider, rather than immediately after the upper divider.  A divider
+        # below still distinguishes its composer from ordinary transcript text.
         if any(RULE_RE.match(line) for line in lines[index + 1 :]):
             return match.group(1)
     return None
@@ -297,8 +310,13 @@ def normalize(label: str, message: str) -> str:
 
 
 def composer_has_message(profile: Profile, label: str, content: str, typed: str) -> bool:
-    if profile.agent in {"claude", "agy"}:
-        return content.startswith(label) or typed.startswith(content)
+    if profile.agent in {"claude", "agy", "muse"}:
+        # Match a meaningful prefix of this exact send.  Checking only the
+        # label could mistake an older chat line for the newly typed composer.
+        required = min(len(typed), MIN_WRAPPED_PROBE)
+        return (
+            typed.startswith(content) and len(content) >= required
+        ) or bool(PASTED_RE.match(content))
     required = min(len(typed), MIN_WRAPPED_PROBE)
     literal = typed.startswith(content) and len(content) >= required
     return literal or bool(PASTED_RE.fullmatch(content))
@@ -326,10 +344,22 @@ def wait_for_accepted(sid: str, profile: Profile, held: str) -> bool:
         time.sleep(0.1)
 
 
+def composer_is_empty(sid: str, profile: Profile) -> bool:
+    # Claude may leave its terminal cursor on a background-agent status row
+    # during a redraw.  Its last prompt line followed by the lower divider is
+    # stronger evidence: it distinguishes an empty composer from an occupied
+    # one without depending on the transient cursor position.
+    if profile.agent == "claude":
+        content = claude_prompt_text(pane_text(sid, profile))
+        if content is not None:
+            return not content.strip()
+    return cursor_column(sid, profile) == EMPTY_CURSOR_COLUMN
+
+
 def send(sid: str, profile: Profile, label: str, message: str) -> int:
     typed = normalize(label, message)
-    if cursor_column(sid, profile) != EMPTY_CURSOR_COLUMN:
-        raise PromptBlocked("target composer is not confirmably empty; nothing was typed")
+    if not composer_is_empty(sid, profile):
+        raise PromptBlocked(f"{profile.agent} is not ready; message was not sent")
 
     type_text(sid, profile, typed)
     held = wait_for_composed(sid, profile, label, typed)
@@ -346,21 +376,15 @@ def send(sid: str, profile: Profile, label: str, message: str) -> int:
 
 
 def send_with_retry(sid: str, profile: Profile, label: str, message: str) -> int:
-    """Retry only a pre-write occupied-composer refusal."""
+    """Quietly retry only a pre-write refusal."""
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
             return send(sid, profile, label, message)
         except PromptBlocked as err:
             if attempt == RETRY_ATTEMPTS:
                 raise PromptBlocked(
-                    f"{err} after {RETRY_ATTEMPTS} attempts"
+                    f"{profile.agent} did not become ready; message was not sent"
                 ) from err
-            print(
-                f"peer-chat: attempt {attempt}/{RETRY_ATTEMPTS} blocked; "
-                f"retrying in {RETRY_DELAY:g}s: {err}",
-                file=sys.stderr,
-                flush=True,
-            )
             time.sleep(RETRY_DELAY)
     raise AssertionError("unreachable")
 
@@ -369,8 +393,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Peer chat between agents running in agterm split panes."
     )
-    parser.add_argument("--to", choices=PROFILES, required=True, help="target agent (claude, codex, agy)")
-    parser.add_argument("--from", choices=["claude", "codex", "agy"], dest="from_agent", help="sender agent name")
+    parser.add_argument("--to", choices=PROFILES, required=True, help="target agent (claude, codex, agy, muse)")
+    parser.add_argument("--from", choices=["claude", "codex", "agy", "muse"], dest="from_agent", help="sender agent name")
     parser.add_argument("--from-label", help="custom sender label prefix (e.g. 'Chat from AGY: ')")
     parser.add_argument("--pane", choices=["left", "right"], help="override target pane side")
     parser.add_argument("--session")
