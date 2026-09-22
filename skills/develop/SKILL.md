@@ -147,7 +147,7 @@ Then **end your turn**. Never poll or watch for the reply — it arrives as a `C
 
 ### 4b — `codex review` (fallback, and always the subagent route)
 
-Run it **from the branch's worktree**, not the main checkout:
+Run it **from the branch's worktree**, not the main checkout (in a repo with `.revmux/`, one revmux round on the project profile is an equivalent alternative):
 
 ```bash
 cd <worktree> && git branch -f review-base origin/master && codex review --base review-base

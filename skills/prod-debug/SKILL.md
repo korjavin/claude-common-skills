@@ -7,15 +7,15 @@ description: Debug issues on the production server over SSH. Trigger when the us
 
 The user runs this project's containers on a personal server reachable over SSH:
 
-- **medicationtrackerbot cloud (`cmd/cloud`, the shipped product):** `root@cloud.myhealthbot.ai` — plain `docker` (no podman, no sudo). Containers: `medtracker-cloud` (app, DB volume `cloud-server_cloud_data` → `/app/data/cloud.db`, WAL mode), `medtracker-cloud-telegram-api`, `cloud-traefik`, `cloud-portainer`. No `sqlite3` binary on the host — copy `cloud.db` + `-wal` + `-shm` to `/tmp` and query with `python3 -c 'import sqlite3'` (`mode=ro`), then delete the copy. Container logs rotate on redeploy (`docker inspect --format {{.State.StartedAt}}`); the oplog is compacted into snapshots, so old per-record write history is gone.
-- **Legacy/other projects host:** `pet.kfamcloud.com` — Portainer UI + `sudo podman`.
+- **medicationtrackerbot cloud (`cmd/cloud`, the shipped product):** `root@$MED_HOST` (`MED_HOST=$(kv get secrets/prod-host-medtracker)`) — plain `docker` (no podman, no sudo). Containers: `medtracker-cloud` (app, DB volume `cloud-server_cloud_data` → `/app/data/cloud.db`, WAL mode), `medtracker-cloud-telegram-api`, `cloud-traefik`, `cloud-portainer`. No `sqlite3` binary on the host — copy `cloud.db` + `-wal` + `-shm` to `/tmp` and query with `python3 -c 'import sqlite3'` (`mode=ro`), then delete the copy. Container logs rotate on redeploy (`docker inspect --format {{.State.StartedAt}}`); the oplog is compacted into snapshots, so old per-record write history is gone.
+- **Legacy/other projects host:** `$HOST` (`HOST=$(kv get secrets/prod-host-legacy)`; real hostnames live only in the local stash, never in this public repo; set it inside every Bash call, shell state does not persist) — Portainer UI + `sudo podman`.
 - **Access:** SSH key already configured (no password prompt expected)
 
 This skill exists because the user is tired of repeating these details every time. Use it whenever they ask to debug, inspect, or reproduce something against production.
 
 ## Workflow
 
-1. **SSH in** — `ssh pet.kfamcloud.com` (use Bash with `run_in_background: false` for short commands; combine `ssh pet.kfamcloud.com '<remote command>'` for one-shots).
+1. **SSH in** — `ssh "$HOST"` (use Bash with `run_in_background: false` for short commands; combine `ssh "$HOST" '<remote command>'` for one-shots).
 2. **Find the right container** — `sudo podman ps` to list, match by image/name (project containers usually carry `medtracker`, `bot`, etc. in the name).
 3. **Read logs** — `sudo podman logs --tail 200 <container>` for recent output, add `--since 30m` to bound by time, or `-f` if the user explicitly wants a tail (run in background).
 4. **Inspect env / config** — `sudo podman inspect <container>` for full config, or `sudo podman exec <container> env` for the live environment. Mask secret values when echoing them back to the user.
@@ -32,17 +32,17 @@ This skill exists because the user is tired of repeating these details every tim
 
 ```bash
 # List containers
-ssh pet.kfamcloud.com 'sudo podman ps'
+ssh "$HOST" 'sudo podman ps'
 
 # Tail last 200 log lines
-ssh pet.kfamcloud.com 'sudo podman logs --tail 200 <container>'
+ssh "$HOST" 'sudo podman logs --tail 200 <container>'
 
 # Logs from the last 30 minutes
-ssh pet.kfamcloud.com 'sudo podman logs --since 30m <container>'
+ssh "$HOST" 'sudo podman logs --since 30m <container>'
 
 # Live env in the container
-ssh pet.kfamcloud.com 'sudo podman exec <container> env'
+ssh "$HOST" 'sudo podman exec <container> env'
 
 # Open an interactive shell
-ssh pet.kfamcloud.com -t 'sudo podman exec -it <container> sh'
+ssh "$HOST" -t 'sudo podman exec -it <container> sh'
 ```

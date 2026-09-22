@@ -1,2 +1,4 @@
 skills/portainer-api/
 .DS_Store
+skills/synced/
+__pycache__/
