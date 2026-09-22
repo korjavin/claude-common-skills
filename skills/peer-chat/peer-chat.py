@@ -226,8 +226,32 @@ def detect_sender_label(
     elif runs(fg, "muse"):
         sender_str = "Muse"
     else:
-        sender_str = "Claude" if opposite_pane == "left" else "AGY"
+        # No split to read (cross-session send from an agent whose env lacks
+        # AGTERM_SESSION_ID, e.g. codex): name the sender from our own
+        # process ancestry instead of guessing by pane side.
+        sender = ancestor_agent()
+        if sender:
+            sender_str = "AGY" if sender == "agy" else sender.capitalize()
+        else:
+            sender_str = "Claude" if opposite_pane == "left" else "AGY"
     return f"Chat from {sender_str}: "
+
+
+def ancestor_agent() -> str | None:
+    pid = os.getppid()
+    for _ in range(12):
+        if pid <= 1:
+            break
+        out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
+                             capture_output=True, text=True).stdout.strip()
+        if not out:
+            break
+        ppid, _, command = out.partition(" ")
+        agent = next((a for a in ("claude", "codex", "agy", "muse") if runs([command], a)), None)
+        if agent:
+            return agent
+        pid = int(ppid)
+    return None
 
 
 def pane_text(sid: str, profile: Profile) -> str:
