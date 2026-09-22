@@ -202,6 +202,17 @@ def detect_sender_label(
         sender_str = "AGY" if from_agent.lower() == "agy" else from_agent.capitalize()
         return f"Chat from {sender_str}: "
 
+    # Cross-session send (target is another agterm session): the target's other
+    # pane says nothing about us, so name the sender from our own session and
+    # tell the recipient exactly how to answer back.
+    own = os.environ.get("AGTERM_SESSION_ID")
+    if own and own != sid:
+        fg = find_node(own).get("foreground")
+        sender = next((a for a in ("claude", "codex", "agy", "muse") if runs(fg, a)), "claude")
+        sender_str = "AGY" if sender == "agy" else sender.capitalize()
+        return (f"Chat from {sender_str} (reply with: peer-chat.py --to {sender} "
+                f"--pane left --session {own} --stdin): ")
+
     info = find_node(sid)
     opposite_pane = "right" if profile.pane == "left" else "left"
     field = "foreground" if opposite_pane == "left" else "splitForeground"
