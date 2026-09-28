@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Send one peer-chat message between Claude Code, Codex, and AGY (Antigravity CLI) in an agterm split."""
+"""Send one peer-chat message between Claude Code, Codex, and AGY (Antigravity CLI) in agterm.
+
+Agents run either in separate terminals (tabs) on the same checkout — preferred —
+or in the two panes of one split session."""
 
 from __future__ import annotations
 
@@ -22,8 +25,10 @@ PROBE_TIMEOUT = 3.0
 # Claude's background-agent status redraws can briefly move the terminal cursor
 # away from the composer even while the composer itself is empty.  Retry these
 # transient states quietly; callers only need the eventual delivery result.
-RETRY_ATTEMPTS = 41
-RETRY_DELAY = 1.0
+# A busy target (mid tool run, long turn) keeps its composer occupied for
+# minutes, so wait up to PEER_CHAT_WAIT_S (default 300 s) before giving up.
+RETRY_DELAY = 2.0
+RETRY_ATTEMPTS = max(1, int(float(os.environ.get("PEER_CHAT_WAIT_S", "300")) / RETRY_DELAY) + 1)
 BOX_LINES = 40
 EMPTY_CURSOR_COLUMN = 2
 MIN_WRAPPED_PROBE = 40
@@ -163,24 +168,60 @@ def require_target(sid: str, profile: Profile) -> str:
     return str(info["id"])
 
 
-def resolve_session(explicit: str | None, profile: Profile) -> str:
-    sid = explicit or os.environ.get("AGTERM_SESSION_ID")
-    if sid:
-        return require_target(sid, profile)
+def solo(info: dict[str, Any], profile: Profile) -> bool:
+    """A separate single-pane terminal whose only pane runs the target agent."""
+    return not info.get("hasSplit") and runs(info.get("foreground"), profile.command)
+
+
+def resolve_session(
+    explicit: str | None, profile: Profile, pane_pinned: bool
+) -> tuple[str, Profile]:
+    # A single-pane session is addressed through its only (left) pane, unless
+    # the caller pinned --pane, in which case require_target keeps refusing.
+    def settle(sid: str) -> tuple[str, Profile]:
+        info = find_node(sid)
+        if not pane_pinned and not info.get("hasSplit"):
+            return require_target(sid, replace(profile, pane="left")), replace(profile, pane="left")
+        return require_target(sid, profile), profile
+
+    if explicit:
+        return settle(explicit)
+    own = os.environ.get("AGTERM_SESSION_ID")
     wanted = checkout_key(os.getcwd())
+    nodes = list(walk(tree()))
+    # Preferred layout: each agent in its own terminal (tab) on the same checkout.
+    separate = [
+        str(info["id"])
+        for info in nodes
+        if not pane_pinned
+        and solo(info, profile)
+        and str(info["id"]) != own
+        and info.get("cwd")
+        and checkout_key(str(info["cwd"])) == wanted
+    ]
+    if len(separate) == 1:
+        return settle(separate[0])
+    if len(separate) > 1:
+        raise RuntimeError(
+            f"more than one separate {profile.agent} terminal shares this checkout; "
+            "pass --session ID"
+        )
+    # Legacy layout: both agents in one split session.
+    if own:
+        return require_target(own, profile), profile
     matches = [
         str(info["id"])
-        for info in walk(tree())
+        for info in nodes
         if has_target(info, profile)
         and info.get("cwd")
         and checkout_key(str(info["cwd"])) == wanted
     ]
     if len(matches) == 1:
-        return matches[0]
+        return matches[0], profile
     if not matches:
         raise RuntimeError(
-            "this checkout maps to no session running the expected "
-            f"{profile.agent}-{profile.pane} layout; "
+            f"this checkout maps to no terminal running {profile.command!r}, "
+            f"neither a separate one nor the {profile.pane} pane of a split; "
             "for a wrapper, pass --target-command NAME"
         )
     raise RuntimeError(
@@ -211,7 +252,7 @@ def detect_sender_label(
         sender = next((a for a in ("claude", "codex", "agy", "muse") if runs(fg, a)), "claude")
         sender_str = "AGY" if sender == "agy" else sender.capitalize()
         return (f"Chat from {sender_str} (reply with: peer-chat.py --to {sender} "
-                f"--pane left --session {own} --stdin): ")
+                f"--session {own} --stdin): ")
 
     info = find_node(sid)
     opposite_pane = "right" if profile.pane == "left" else "left"
@@ -426,7 +467,7 @@ def send_with_retry(sid: str, profile: Profile, label: str, message: str) -> int
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Peer chat between agents running in agterm split panes."
+        description="Peer chat between agents running in separate agterm terminals or split panes."
     )
     parser.add_argument("--to", choices=PROFILES, required=True, help="target agent (claude, codex, agy, muse)")
     parser.add_argument("--from", choices=["claude", "codex", "agy", "muse"], dest="from_agent", help="sender agent name")
@@ -447,7 +488,7 @@ def main() -> int:
     args = parse_args()
     try:
         profile = target_profile(args.to, args.target_command, args.pane)
-        sid = resolve_session(args.session, profile)
+        sid, profile = resolve_session(args.session, profile, args.pane is not None)
         label = detect_sender_label(sid, profile, args.from_agent, args.from_label)
         sent = send_with_retry(sid, profile, label, sys.stdin.read())
         print(json.dumps({"sent": sent}))

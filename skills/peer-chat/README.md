@@ -30,7 +30,7 @@ If your `agtermctl` is not on `PATH` under that name, set `AGTERMCTL` to its ful
 
 ## Usage
 
-Open a split in the session you want to use, then start one agent in each pane yourself: Claude Code on the left, Codex on the right. Neither the script nor the skills start an agent, by design.
+Preferred layout: start each agent in its own agterm terminal (tab) on the same checkout. The script finds the one separate terminal in the caller's checkout running the target agent and types into it. The older layout still works: one split session, Claude Code on the left, Codex on the right. Neither the script nor the skills start an agent, by design.
 
 Ask either agent to talk to the other, and it sends through the script:
 
@@ -76,7 +76,7 @@ The recipe deliberately does not start agents. Deciding that a pane is safe to t
 
 **The first exchange may stop and wait for you.** An agent asked to run this script may put up its own approval request before running anything, and neither skill will answer it: a permission prompt carries your authority, so both are told to leave it alone. Until you approve it in that pane, the exchange simply sits there, which looks like a hang rather than a question.
 
-**A busy receiver is waited out, but only for about forty seconds.** The script retries once per second without printing internal retry diagnostics, then gives up with exit 1 and types nothing. A pane left sitting on a dialog therefore costs about forty seconds before the send fails rather than blocking forever.
+**A busy receiver is waited out for up to five minutes.** Agents mid-turn keep their composer occupied for minutes, so the script retries every two seconds without printing internal retry diagnostics, then gives up with exit 1 and types nothing. Set `PEER_CHAT_WAIT_S` to change the window (e.g. `PEER_CHAT_WAIT_S=40` for the old fail-fast behaviour). A pane left sitting on a dialog therefore costs up to that window before the send fails rather than blocking forever.
 
 **Only the pre-write refusal is retried.** Nothing has been typed at that point, so trying again is safe. Every failure after the text has gone in stops on the first occurrence and is never retried, because retrying there would duplicate a message that is already sitting in the composer.
 
@@ -84,11 +84,11 @@ The recipe deliberately does not start agents. Deciding that a pane is safe to t
 
 The two directions are not symmetric. Codex is sent Tab, which queues the line while it is busy and costs a running turn nothing. Claude Code has no queue-only key and is sent Return, so a message arriving while it works injects into the turn in progress and can interrupt it. Send to Claude when you have finished, not mid-thought.
 
-It assumes Claude Code on the left and Codex on the right. Each agent's pane is fixed in the script's profiles, so a split arranged the other way sends every message to the wrong pane. A session with no split is refused outright, before any pane is read: without that check a send to the left pane would still pass after the right one had closed, which is no longer a two-agent layout at all.
+In a split it assumes Claude Code on the left and Codex on the right. Each agent's pane is fixed in the script's profiles, so a split arranged the other way sends every message to the wrong pane. A single-pane session is addressed through its only pane, but only after its foreground is confirmed to be the target agent; pass `--pane` to pin a split pane, and then a session with no split is refused.
 
 **Codex cannot see which pane it is in unless you tell it at launch.** It strips `AGTERM_SESSION_ID` from every tool subprocess, and nothing inside its sandbox recovers the value: reading a parent process is blocked outright. Without the launch injection in *Setup*, the script falls back to matching the git checkout, and every worktree of one repository maps to the same checkout, so two sessions open on the same repository are indistinguishable and the send refuses. That refusal is the correct outcome, not a bug, but it is why the injection is worth doing once in your Codex launcher rather than remembering per session.
 
-Session resolution never guesses. With `AGTERM_SESSION_ID` or `--session` it uses that session after checking the target pane. Without either, it matches only sessions in the same checkout as the caller, and refuses on none or several rather than picking a session elsewhere that happens to have the right shape. `--session` takes a full id or any unique prefix of one.
+Session resolution never guesses. With `AGTERM_SESSION_ID` or `--session` it uses that session after checking the target pane. Without `--session` it first looks for exactly one separate terminal (not the caller's own) in the same checkout running the target agent; failing that, it falls back to the caller's split session, and without `AGTERM_SESSION_ID` it matches only sessions in the same checkout as the caller, and refuses on none or several rather than picking a session elsewhere that happens to have the right shape. `--session` takes a full id or any unique prefix of one.
 
 An agent whose launcher leaves no stable name in the pane's command line cannot be targeted at all. `--target-command` matches a name that agterm can actually see, so a wrapper that execs through something anonymous stays unsupported and every send to it refuses.
 
