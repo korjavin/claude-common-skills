@@ -164,7 +164,7 @@ med-101.4   (shared)  —     —                   queued      after #612
 med-101.5   —         —     —                   parked      Telegram'd: copy sign-off
 ```
 
-End the session with the board's final state: delivered / parked / blocked / orphans.
+End the session with the board's final state: delivered / parked / blocked / orphans. After a long run (many beads, or anything that went in circles), suggest `/curator` in that report — it audits the run and tunes the skills.
 
 **gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
 
