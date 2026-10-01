@@ -1,18 +1,18 @@
 ---
 name: peer-chat
-description: 'Hold a back-and-forth conversation with another agent (Codex or AGY/Antigravity) running in this agterm session''s split pane, as peers. Use when the user says "chat with codex", "talk to codex", "chat with agy", "talk to agy", "work with agy", "discuss with agy", or when a prompt arrives starting with "Chat from Codex:" or "Chat from AGY:". Not for a one-shot task handed off, and not for a read-only second opinion.'
+description: 'Hold a back-and-forth conversation with another agent (Codex or AGY/Antigravity) running in a separate agterm terminal on the same checkout (or this session''s split pane), as peers. Use when the user says "chat with codex", "talk to codex", "chat with agy", "talk to agy", "work with agy", "discuss with agy", or when a prompt arrives starting with "Chat from Codex:" or "Chat from AGY:". Not for a one-shot task handed off, and not for a read-only second opinion.'
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
 # Peer chat, Claude side
 
-Talk with the agent running in the split pane (Codex or AGY). The user reads both panes, so the conversation itself is the result even when code comes out of it.
+Talk with the agent (Codex or AGY) running in its own agterm terminal on the same checkout, or in this session's split pane. The user reads both panes, so the conversation itself is the result even when code comes out of it.
 
 Everything that touches the pane goes through `peer-chat.py`. Do not drive `agtermctl` directly: the script carries the checks that keep a message out of a dialog, and a raw `session type` bypasses all of them.
 
 ## Preconditions
 
-The session needs a split with the target agent (Codex or AGY) already running in it, started by the user. This skill never starts an agent and never opens a pane. If the split is missing or the target agent is not running in it, say so and stop.
+The target agent (Codex or AGY) must already be running, started by the user — preferably in its own agterm terminal on the same checkout (run `peer-chat.py` from that checkout), or in this session's split pane. This skill never starts an agent and never opens a pane or terminal. If no such terminal or pane exists, say so and stop.
 
 ## Sending
 

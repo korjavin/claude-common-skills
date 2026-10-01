@@ -18,8 +18,8 @@ re-send the same alert in a loop.
 ## Send
 
 ```bash
-T=$(~/stash/kv get secrets/omniagent-tg-token)
-C=$(~/stash/kv get secrets/omniagent-tg-chat)
+T=$(kv get secrets/omniagent-tg-token)
+C=$(kv get secrets/omniagent-tg-chat)
 curl -sf "https://api.telegram.org/bot$T/sendMessage" \
   --data-urlencode chat_id="$C" \
   --data-urlencode text="🔔 omniagent: <what happened, one or two sentences, and what you need from the owner>"
@@ -36,9 +36,9 @@ If `secrets/omniagent-tg-chat` is missing: ask the owner to send any message to
 the bot in Telegram, then:
 
 ```bash
-T=$(~/stash/kv get secrets/omniagent-tg-token)
+T=$(kv get secrets/omniagent-tg-token)
 C=$(curl -sf "https://api.telegram.org/bot$T/getUpdates" | grep -o '"chat":{"id":[0-9-]*' | tail -1 | grep -o '[0-9-]*$')
-~/stash/kv set secrets/omniagent-tg-chat "$C"   # straight into stash — never print it
+kv set secrets/omniagent-tg-chat "$C"   # straight into stash — never print it
 ```
 
 ## If it fails
