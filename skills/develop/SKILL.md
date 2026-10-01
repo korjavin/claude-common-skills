@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → ralphex with review, or the revmux loop when the project has `.revmux/`; small/medium → implement on an opus-class model; trivial → direct fix), review the branch (peer-chat with the Codex pane when one runs in this agterm session, else `codex review`), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex; ralphex or revmux for huge tasks. The delivery agent defaults to claude and can be overridden (`--agent agy|muse|codex`).
+description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → the revmux loop; small/medium → implement on an opus-class model; trivial → direct fix), review the branch (peer-chat with the Codex pane when one runs in this agterm session, else `codex review`), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex; revmux for huge tasks. The delivery agent defaults to claude and can be overridden (`--agent agy|muse|codex`).
 ---
 
 # /develop — deliver one bead
@@ -15,8 +15,7 @@ You are the **developer**. You get **one bead** (or one epic bead) and deliver e
 
 ```bash
 which gh && which bd && which codex && gh auth status   # stop and report if any missing
-test -d .revmux && which revmux                          # `.revmux/` present → huge beads take the revmux loop (Step 2b), never ralphex
-which ralphex                                            # only if the bead is huge and there is no `.revmux/`
+which revmux                                             # only if the bead is huge (Step 2b)
 ```
 
 ## Subagent contract (when spawned by an orchestrator)
@@ -51,29 +50,13 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 
 ## Step 2 — route by size
 
-- **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): **if the repo has `.revmux/`, take Step 2b (the revmux loop) instead of everything in this bullet.** Otherwise use **ralphex**. Author the plan yourself from the bead's spec directly into `docs/plans/` (ralphex-plan's format — an epic bead's children become the plan's tasks; in subagent mode you cannot answer ralphex-plan's interactive questions, so the bead spec must carry the decisions — anything it doesn't decide is a BLOCKED, not a guess). Then launch `ralphex` **detached** and **monitor it to completion**; do not return while it is still executing.
-
-  **Never launch ralphex via the Bash tool's `run_in_background`** — the harness reaps background tasks after 1h (SIGTERM → ralphex logs `Failed: ... (1h0m) ... context canceled`), and foreground Bash is capped at 10 min. Detach it from the harness process tree instead, from `<worktree>`:
-
-  ```bash
-  mkdir -p .ralphex && (nohup ralphex --task-model opus --review-model opus docs/plans/<plan>.md > .ralphex/ralphex.log 2>&1 < /dev/null &) ; sleep 2; pgrep -fl 'ralphex --task-model'
-  ```
-
-  (The `( … &)` subshell double-forks, so ralphex is reparented to launchd and outlives the Bash call; `nohup` covers SIGHUP. No `setsid` on macOS.)
-
-  Then poll in short foreground Bash calls (each under the 10 min cap) until the progress file's last line starts with `Completed:` or `Failed:`:
-
-  ```bash
-  for i in $(seq 1 50); do tail -1 .ralphex/progress/progress-<plan>.txt | grep -qE '^(Completed|Failed):' && break; sleep 10; done; tail -5 .ralphex/progress/progress-<plan>.txt
-  ```
-
-  (`Failed:` with `context canceled` means something still killed it — report it, do not silently relaunch.) Ralphex carries its own review loop, so skip Step 4; pick up at Step 5 for each branch it produces.
+- **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): take **Step 2b** (the revmux loop).
 - **Small/medium** (a real feature or multi-file change that fits one focused pass): **implement it yourself** on an opus-class model, in `<worktree>`. If your session is not on an opus-class model, delegate the coding to one `Agent` subagent (`isolation: "worktree"`, `model: "opus"`) whose prompt carries the spec **plus the implementation contract: create a branch, implement, verify locally per Step 3, COMMIT the work, and report back branch name + worktree path**. When it reports, **its worktree and branch become `<worktree>`/`<branch>` for every step below**; do not review or push the one you made, and confirm its branch actually has commits before proceeding. Either way it is one unit of work, not a fleet.
 - **Trivial** (one-touch fix that fits in your head): fix it in `<worktree>`, run the relevant test/build, **commit it**, then go to Step 4.
 
-## Step 2b — the revmux loop (huge beads in a repo with `.revmux/`)
+## Step 2b — the revmux loop (huge beads)
 
-A checked-in `.revmux/` means the project has its own review rules, so the review loop is revmux's, not ralphex's: **deliver with `<agent>` → revmux round → fix with the same `<agent>` → re-review, at most 3 fix iterations.** Follow the revmux skill for anything not spelled out here (task dir, scope/goal files, reading the JSON).
+Huge beads are delivered in a review loop (a checked-in `.revmux/` adds the project's own review rules; without it revmux runs its built-in profiles): **deliver with `<agent>` → revmux round → fix with the same `<agent>` → re-review, at most 3 fix iterations.** Follow the revmux skill for anything not spelled out here (task dir, scope/goal files, reading the JSON).
 
 **Resolve `<agent>` and `<revmux-profile>` before writing any code** — a question here costs nothing, a question after implementing wastes the work.
 
@@ -86,10 +69,10 @@ ${REVMUX_SKILL}/scripts/preflight.sh <revmux-profile>   # ok: false → report, 
 
 (`REVMUX_SKILL` = the revmux skill dir, e.g. `~/.claude/plugins/marketplaces/revmux/.claude-plugin/skills/revmux`.)
 
-**1. Deliver.** Write the plan into `docs/plans/` exactly as the ralphex route does (the bead spec carries the decisions; anything undecided is BLOCKED, not a guess). Then, in `<worktree>`:
+**1. Deliver.** Author the plan from the bead's spec into `docs/plans/` (an epic bead's children become its tasks; the bead spec carries the decisions — anything undecided is BLOCKED, not a guess). Then, in `<worktree>`:
 
 - `claude`: implement it yourself per Step 3, one plan task at a time, committing per task.
-- anything else: run it headless with the plan path plus the implementation contract (implement every task in the plan, verify per Step 3, commit per task, never push). Same detach rule as ralphex — never `run_in_background`, foreground is capped at 10 min:
+- anything else: run it headless with the plan path plus the implementation contract (implement every task in the plan, verify per Step 3, commit per task, never push). Detach it from the harness — never `run_in_background` (the harness reaps background tasks after 1h), and foreground is capped at 10 min:
 
 ```bash
 mkdir -p .revmux-dev
@@ -127,7 +110,7 @@ Keep `.revmux-dev/` and `.revmux/tasks/` out of the commits (add to `.git/info/e
 
 ## Step 4 — review
 
-Every branch gets an independent review before it becomes a PR (ralphex- and revmux-loop-delivered work already had its review loop — skip this). Two routes, tried in this order; **trivial fixes take the same routes — both are cheap, don't upgrade them to a ralphex review loop.**
+Every branch gets an independent review before it becomes a PR (revmux-loop-delivered work already had its review loop — skip this). Two routes, tried in this order; **trivial fixes take the same routes — both are cheap, don't upgrade them to the revmux loop.**
 
 ### 4a — peer review with the Codex pane (direct invocation in agterm only)
 
@@ -181,7 +164,7 @@ Red → diagnose (`gh run view <run> --log-failed`), fix with a targeted commit,
 
 ## Step 7 — hand off (you never merge)
 
-Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, and outstanding review findings (codex or revmux) with the round they came from. To an orchestrator caller that report is your return value; it checks the work and merges. To the owner directly, that's the handoff — they (or their orchestrator) merge.
+Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, and outstanding review findings (codex or revmux) with the round they came from. To an orchestrator caller, write that report to `/private/tmp/report-<id>.md` and return only the one-line form its prompt asks for (`READY #<pr> <branch> <worktree> findings=<n>`) — its context is the scarce one; it checks the work and merges. To the owner directly, that's the handoff — they (or their orchestrator) merge.
 
 **Do not merge, even a trivial fix** — checking and merging is the supervisor's independent gate, and self-merging is exactly what bypasses it. Do not close the bead either: it closes on merge, by whoever merged. If you delivered directly for the owner and they say "merged", then close it yourself, Dolt-synced:
 
