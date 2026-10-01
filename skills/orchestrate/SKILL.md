@@ -158,6 +158,8 @@ med-101.5   —         —     —                   parked      Telegram'd: co
 
 End the session with the board's final state: delivered / parked / blocked / orphans.
 
+**gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
+
 ## Standing guardrails
 
 1. **Dolt sync goes through `bead.sh`** — it pulls before and pushes after every write and checks the push; for one-off bd writes outside it (Step 0's supersede close), `bd dolt pull` before and `bd dolt pull && bd dolt push` after when a remote exists.

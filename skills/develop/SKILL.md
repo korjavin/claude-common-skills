@@ -176,6 +176,7 @@ bd dolt pull && bd dolt push          # pull again before push; on a rejected pu
 
 ## Gotchas
 
+- **gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
 - **Push before the worktree dies.** An unpushed branch in a discarded worktree is lost work.
 - **`.beads/*.jsonl` churn re-dirties the tree** on nearly every bd command — commit it again right before you need a clean tree.
 - **bd operations from the main checkout** when you have one (direct invocation). A worktree-spawned subagent has only its worktree: bd state still syncs correctly via `bd dolt push`, but **never commit the `.beads/` churn to your feature branch** — it conflicts with every parallel track at merge time; leave it uncommitted or stash it.

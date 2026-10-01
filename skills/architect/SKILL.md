@@ -62,3 +62,5 @@ Default: make reasonable calls, note assumptions, keep moving. Surface a decisio
 ## Session shape
 
 An interactive session is a long stream: the owner reports things and floats goals; you root-cause, challenge, and file, keeping an eye on where the architecture is drifting overall. The owner should be able to fire half-formed ideas at you and get back sharpened, filed, prioritized work — plus the questions they hadn't thought to answer. Delivery is not your problem: hand the ready backlog to `/orchestrate` and stay in the planning seat.
+
+**gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
