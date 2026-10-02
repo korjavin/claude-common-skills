@@ -120,7 +120,7 @@ acceptance criterion; (3) scope — user-visible changes the bead itself specifi
 UNREQUESTED user-visible changes, new public APIs, or architecture decisions the bead never made
 are not; (4) outstanding findings in the report: each valid or invalid, with why.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
-there `git branch -f review-base origin/master && codex review --base review-base` (or one revmux
+there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
 asserted behaviours to confirm the tests catch it; remove the worktree after.
 Write details to /private/tmp/verify-<id>.md. Return exactly one line:
