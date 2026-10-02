@@ -10,6 +10,10 @@
 set -u
 cmd=${1:?usage: see header}; actor=${2:?actor}; shift 2
 tmp=$(mktemp)
+# Multi-account gh: `git config beads.ghAccount <acct>` once per repo; dolt push/pull and gh then use it.
+acct=$(git config --get beads.ghAccount) && [ -n "$acct" ] && export GH_TOKEN=$(gh auth token -u "$acct") \
+  GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+  GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential'
 bd dolt remote list 2>&1 | grep -q 'No remotes' && remote= || remote=1
 pull() { [ -z "$remote" ] || bd dolt pull >/dev/null 2>&1; }
 push() {

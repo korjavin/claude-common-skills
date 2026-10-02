@@ -118,7 +118,10 @@ Verify PR #<pr> for bead(s) <ids> before merge. Read `bd show <id>`, /private/tm
 and `gh pr diff <pr>`. Check: (1) `gh pr checks <pr>` all green; (2) the diff meets every
 acceptance criterion; (3) scope — user-visible changes the bead itself specifies are fine;
 UNREQUESTED user-visible changes, new public APIs, or architecture decisions the bead never made
-are not; (4) outstanding findings in the report: each valid or invalid, with why.
+are not; (4) outstanding findings in the report: each valid or invalid, with why; (5) deploy-compat —
+the running server must not start refusing config, env or data it accepts today (new required env,
+stricter validation, format change, migration) without a fallback, unless the bead records the prod value
+as checked → `SCOPE #<pr> deploy-compat: <what prod must have>`.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
 there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
@@ -168,7 +171,7 @@ med-101.5   —         —     —                   parked      Telegram'd: co
 
 End the session with the board's final state: delivered / parked / blocked / orphans. After a long run (many beads, or anything that went in circles), suggest `/curator` in that report — it audits the run and tunes the skills.
 
-**gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
+`bead.sh` takes its gh account from `git config beads.ghAccount` — never prefix calls with `export GH_TOKEN…`. **gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
 
 ## Standing guardrails
 
