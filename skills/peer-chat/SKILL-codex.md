@@ -17,17 +17,19 @@ The session needs both panes running, with Claude Code or AGY on the left, start
 
 To send to Claude:
 ```bash
-peer-chat.py --to claude --stdin <<'CHAT'
+peer-chat.py --to claude --from codex --session <ID> --stdin <<'CHAT'
 the message goes here, as one paragraph
 CHAT
 ```
 
 To send to AGY:
 ```bash
-peer-chat.py --to agy --stdin <<'CHAT'
+peer-chat.py --to agy --from codex --session <ID> --stdin <<'CHAT'
 the message goes here, as one paragraph
 CHAT
 ```
+
+**Always pass `--from codex` and `--session`.** Take `<ID>` from the incoming message label (`reply with: ... --session <ID>`); when you start the conversation, take it from `agtermctl tree`. Never rely on `AGTERM_SESSION_ID`: Codex runs tool commands through a shared app-server daemon whose agterm env belongs to whichever (often long-closed) session started it, so it does not name your pane.
 
 Pass the message on stdin through a quoted heredoc, never as an argument. The script collapses all whitespace to single spaces before typing, because typing a newline submits the fragment before it, so write for one paragraph.
 

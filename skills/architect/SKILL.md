@@ -41,14 +41,13 @@ CHAT
 ```
 Then **end your turn** — never poll; the reply arrives as a `Chat from Codex:` prompt. Next round: append your answer to the file, send the path again.
 
-**Subagent (orchestrator-spawned)** — a `Chat from Codex:` prompt would land in the orchestrator's pane, not yours, so the peer must answer **only in the file**, and you poll it:
+**Subagent (orchestrator-spawned)** — you share the orchestrator's `AGTERM_SESSION_ID`, so a `Chat from Codex:` reply would land in the orchestrator's composer, never in yours. **Never use peer-chat to receive replies**: send once, the peer answers **only in the file**, and you wait on it:
 ```bash
 ~/.claude/skills/peer-chat/peer-chat.py --to codex --stdin <<'CHAT'
-Architecture discussion with the architect subagent, no code changes: read /private/tmp/peer-chat-<topic>.md and attack the design — wrong assumptions, simpler paths, things it breaks, with file:line. Do NOT reply through peer-chat (it would land in the orchestrator's pane): append your reply to that file under "## Codex, round 1" and make its last line exactly END CODEX 1.
+Architecture discussion with the architect subagent, no code changes: read /private/tmp/peer-chat-<topic>.md and attack the design — wrong assumptions, simpler paths, things it breaks, with file:line. Do NOT reply through peer-chat (it would land in the orchestrator's pane): append your reply to that file under "## Codex, round 1" and make its last line exactly DONE 1.
 CHAT
-f=/private/tmp/peer-chat-<topic>.md; for i in $(seq 1 9); do grep -qx 'END CODEX 1' "$f" && break; sleep 60; done; grep -qx 'END CODEX 1' "$f" && echo REPLIED || echo NO-REPLY
 ```
-Run it with the Bash `timeout: 600000` — it checks once a minute for ~10 min. On `NO-REPLY` run it once more (~20 min total), then give up. Next round: append `## Architect, round 2` to the file, send the same message with `round 2` / `END CODEX 2`, poll for that marker.
+Then wait with the **Monitor** tool (not a Bash sleep loop), timeout ~20 min: `f=/private/tmp/peer-chat-<topic>.md; until grep -qx 'DONE 1' "$f"; do sleep 30; done`. On timeout, give up and decide alone. On the marker, read the file. Next round: append `## Architect, round 2`, send the same message with `round 2` / `DONE 2`, wait for that marker.
 
 Either mode, on each reply: verify every claim about the code with your own tools before accepting it, keep the located disagreements, answer them. Stop at agreement or after three rounds. Unresolved trade-offs go to the owner — `AskUserQuestion` interactively, `OPEN QUESTIONS` (with both positions) from a subagent. File the beads with the result: the chosen design, the rejected alternatives and why, including what the peer raised.
 

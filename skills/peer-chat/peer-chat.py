@@ -21,7 +21,9 @@ SUBMIT_DELAY = 0.15
 # Claude Code can take longer than a single UI frame to redraw a newly typed
 # composer while it is processing tool output.  Keep the confirmation safety
 # check, but give that redraw time to arrive before withholding Return.
-PROBE_TIMEOUT = 3.0
+# A busy orchestrator streaming background-agent status can take several
+# seconds to redraw; override with PEER_CHAT_PROBE_TIMEOUT.
+PROBE_TIMEOUT = float(os.environ.get("PEER_CHAT_PROBE_TIMEOUT", "10.0"))
 # Claude's background-agent status redraws can briefly move the terminal cursor
 # away from the composer even while the composer itself is empty.  Retry these
 # transient states quietly; callers only need the eventual delivery result.
@@ -156,6 +158,33 @@ def find_node(sid: str) -> dict[str, Any]:
     raise RuntimeError(f"ambiguous session prefix {sid!r}")
 
 
+def own_session() -> str | None:
+    """AGTERM_SESSION_ID, but only if that session still exists.
+
+    Codex runs tool commands through a shared app-server daemon whose env was
+    captured from whichever agterm session started it, so the inherited id can
+    name a long-closed session (or a different live one). A dead id is
+    treated as absent; callers that know better pass --session / --from."""
+    own = os.environ.get("AGTERM_SESSION_ID")
+    if not own:
+        return None
+    if any(str(i.get("id", "")).lower() == own.lower() for i in walk(tree())):
+        return own
+    return None
+
+
+def dump_pane(sid: str, profile: Profile) -> str:
+    """Save the target pane text for post-mortem; returns a hint for the error."""
+    path = f"/private/tmp/peer-chat-fail-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    try:
+        text = pane_text(sid, profile)
+        with open(path, "w") as fh:
+            fh.write(text)
+    except (OSError, subprocess.SubprocessError, RuntimeError) as err:
+        return f" (pane dump failed: {err})"
+    return f" (pane text saved to {path})"
+
+
 def require_target(sid: str, profile: Profile) -> str:
     info = find_node(sid)
     if not info.get("hasSplit") and profile.pane != "left":
@@ -186,7 +215,7 @@ def resolve_session(
 
     if explicit:
         return settle(explicit)
-    own = os.environ.get("AGTERM_SESSION_ID")
+    own = own_session()
     wanted = checkout_key(os.getcwd())
     nodes = list(walk(tree()))
     # Preferred layout: each agent in its own terminal (tab) on the same checkout.
@@ -246,7 +275,7 @@ def detect_sender_label(
     # Cross-session send (target is another agterm session): the target's other
     # pane says nothing about us, so name the sender from our own session and
     # tell the recipient exactly how to answer back.
-    own = os.environ.get("AGTERM_SESSION_ID")
+    own = own_session()
     if own and own != sid:
         fg = find_node(own).get("foreground")
         sender = next((a for a in ("claude", "codex", "agy", "muse") if runs(fg, a)), "claude")
@@ -442,6 +471,7 @@ def send(sid: str, profile: Profile, label: str, message: str) -> int:
     if held is None:
         raise RuntimeError(
             "message was typed but not verified in the target composer; submit withheld"
+            + dump_pane(sid, profile)
         )
 
     time.sleep(SUBMIT_DELAY)
@@ -460,6 +490,7 @@ def send_with_retry(sid: str, profile: Profile, label: str, message: str) -> int
             if attempt == RETRY_ATTEMPTS:
                 raise PromptBlocked(
                     f"{profile.agent} did not become ready; message was not sent"
+                    + dump_pane(sid, profile)
                 ) from err
             time.sleep(RETRY_DELAY)
     raise AssertionError("unreachable")

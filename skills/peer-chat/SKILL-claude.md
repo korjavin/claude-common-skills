@@ -46,6 +46,8 @@ Replies arrive as ordinary prompts opening with `Chat from AGY: ` or `Chat from 
 
 Do not poll or watch for one. Replying wakes this session up on its own, so a watcher only creates a deadlock where each agent waits for a pane the other will not move until it hears back.
 
+**Subagent exception.** A subagent shares its parent's `AGTERM_SESSION_ID`, so a reply would land in the parent's composer, not the subagent's. A subagent never receives replies through peer-chat: it tells the peer to append its answer to `/private/tmp/peer-chat-<topic>.md` ending with a line `DONE`, waits for that marker with the Monitor tool (until-loop, with a timeout), then reads the file.
+
 A reply is also not promised. A model can decline to answer a message that arrived perfectly well, and nothing reports that on either side. Never describe a sent message as though an answer were owed, and never say the peer is "thinking about it" when all you know is that the line was typed.
 
 ## What you may not do

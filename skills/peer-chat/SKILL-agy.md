@@ -16,10 +16,12 @@ The session needs both panes running, with Claude Code on the left, started by t
 ## Sending
 
 ```bash
-peer-chat.py --to claude --from agy --stdin <<'CHAT'
+peer-chat.py --to claude --from agy --session <ID> --stdin <<'CHAT'
 the message goes here, as one paragraph
 CHAT
 ```
+
+**Always pass `--from agy` and `--session`.** Take `<ID>` from the incoming message label (`reply with: ... --session <ID>`); when you start the conversation, take it from `agtermctl tree`. Never rely on `AGTERM_SESSION_ID`: an agent's tool env may be inherited from a shared daemon or another session and need not name your pane.
 
 Pass the message on stdin through a quoted heredoc, never as an argument. The script collapses all whitespace to single spaces before typing, because typing a newline submits the fragment before it, so write for one paragraph.
 

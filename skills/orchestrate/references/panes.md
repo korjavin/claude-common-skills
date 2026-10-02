@@ -30,7 +30,7 @@ too expensive for that. The split is:
 - **You:** claim the bead (`scripts/bead.sh claim`), write the brief file
   `/private/tmp/peer-chat-brief-<id>.md` (the bead id — the agent runs `bd show <id>` itself — the
   three process rules, the in-flight file exclusion list, the worktree path the agent must create
-  for itself, the reply command, `gh pr checks <pr> --watch` for CI (never `sleep`), and the report contract: details to `/private/tmp/report-<id>.md`,
+  for itself, the reply command — always with explicit `--from <agent> --session <your $AGTERM_SESSION_ID>`, since a Codex/AGY tool env can carry a stale agterm id — `gh pr checks <pr> --watch` for CI (never `sleep`), and the report contract: details to `/private/tmp/report-<id>.md`,
   one-line reply `READY #<pr> <branch> <worktree> findings=<n>` or `BLOCKED <questions>`), send the
   path over `peer-chat.py`, add the pane to the watcher's panes file (below). On READY, spawn a CI
   watcher if CI is still running, then the verifier with `pane: yes` (SKILL.md Step 5) — it runs the
