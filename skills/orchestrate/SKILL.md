@@ -72,9 +72,10 @@ it in subagent mode. The bead is ALREADY CLAIMED — skip only develop's claim c
 (`bd show`), CLAUDE.md and the code yourself. Delivery agent: <agent>; revmux profile:
 <revmux-profile> — use these, do not re-resolve. NEVER run frontend tests locally — CI is the
 frontend gate. Open a draft PR with --body-file, drive CI green, mark it ready. Do NOT merge or
-close the bead. Ambiguous bead → touch no bd state, return BLOCKED. Write the full handoff (files
-touched, verification, deferrals, outstanding findings) to /private/tmp/report-<id>.md and return
-exactly one line:
+close the bead. Ambiguous bead → touch no bd state, return BLOCKED. Hand back ONCE: when the PR is
+ready with CI green, or truly blocked — never while CI is merely pending (wait in the foreground,
+develop Step 6). Post the full handoff (files touched, verification, deferrals, outstanding
+findings) as a PR comment (develop Step 7 — no report files) and return exactly one line:
 READY #<pr> <branch> <worktree> findings=<outstanding gating findings>
 BLOCKED <id> — <questions>
 NEED-PROFILE <id>
@@ -84,7 +85,7 @@ Pane agents (muse/agy in agterm panes) as developers → `references/panes.md`.
 
 ## Step 4 — Supervise
 
-Wait. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
+Wait — but never unbounded: arm a watchdog (`Bash` `run_in_background` `sleep 1800`–`3600`) per wait, and when it fires check the real state yourself (`gh pr checks`, `gh pr view --json mergeable`). After every merge, check sibling open PRs for `CONFLICTING` at once — a conflicting PR gets no `pull_request` CI, so its developer or CI watcher waits forever; send the developer to merge `origin/master`. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
 
 On a result line:
 
@@ -112,8 +113,8 @@ CONFLICT #<pr>      (if `gh pr view <pr> --json mergeable` says CONFLICTING)
 Don't read the diff — spawn a **verifier**: `Agent`, `model: "sonnet"`, `run_in_background: true`:
 
 ```markdown
-Verify PR #<pr> for bead(s) <ids> before merge. Read `bd show <id>`, /private/tmp/report-<id>.md
-and `gh pr diff <pr>`. Check: (1) `gh pr checks <pr>` all green; (2) the diff meets every
+Verify PR #<pr> for bead(s) <ids> before merge. Read `bd show <id>`, the developer's handoff
+comment (`gh pr view <pr> --comments`) and `gh pr diff <pr>`. Check: (1) `gh pr checks <pr>` all green; (2) the diff meets every
 acceptance criterion; (3) scope — user-visible changes the bead itself specifies are fine;
 UNREQUESTED user-visible changes, new public APIs, or architecture decisions the bead never made
 are not; (4) outstanding findings in the report: each valid or invalid, with why.

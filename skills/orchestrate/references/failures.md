@@ -33,7 +33,7 @@ developer that reached review is indistinguishable on disk from one that died be
 the review step (Step 4, or one revmux round on profile `<revmux-profile>` when `.revmux/` exists —
 `.revmux/tasks/<id>/` shows rounds already run), fix valid findings, then push, open the draft PR
 with --body-file, drive CI green, mark it ready. <extra task, e.g. "merge origin/master and resolve
-the conflict first">. Do NOT merge or touch bd state. Write details to /private/tmp/report-<id>.md
+the conflict first">. Do NOT merge or touch bd state. Post details as a PR comment (develop Step 7)
 and return one line: READY #<pr> <branch> <worktree> findings=<n> | BLOCKED <questions>.
 ```
 

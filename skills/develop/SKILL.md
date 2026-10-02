@@ -146,8 +146,8 @@ Never apply findings blindly: read the code at each location first. Valid → fi
 
 ```bash
 git -C <worktree> push -u origin <branch>
-printf 'Closes bd %s.\n\n### Summary\n%s\n\n### Verification\n%s\n' "<id>" "<summary>" "<what was verified>" > /tmp/pr-body-<id>.md
-gh pr create --draft --head <branch> --title "<id>: <title>" --body-file /tmp/pr-body-<id>.md
+printf 'Closes bd %s.\n\n### Summary\n%s\n\n### Verification\n%s\n' "<id>" "<summary>" "<what was verified>" \
+  | gh pr create --draft --head <branch> --title "<id>: <title>" --body-file -   # stdin: no temp file outside the worktree
 ```
 
 (`--body-file`, never an inline `--body` with `\n` — bash does not expand those escapes and the PR body renders as one line.)
@@ -157,14 +157,17 @@ Don't re-run the full suite a third time — you verified locally and CI re-runs
 ## Step 6 — drive CI green
 
 ```bash
-gh pr checks <pr> --watch
+gh pr view <pr> --json mergeable    # CONFLICTING → merge origin/master first: a conflicting PR gets no CI at all
+gh pr checks <pr> --watch --interval 60
 ```
+
+Wait in the **foreground**: run the watch as a blocking `Bash` call (timeout ~9 min, repeat until nothing is pending; cap ~40 min total). Never put the CI wait in `run_in_background` and end your turn — a subagent that ends its turn with background work pending is handed back early, and the caller gets an interim "still pending" report instead of a result. Hand back once: green and ready, or a concrete blocker.
 
 Red → diagnose (`gh run view <run> --log-failed`), fix with a targeted commit, re-push, re-watch. Cap at 2 fix passes; still red → report the concrete failure and what you tried, and stop. Do not surface red CI before that.
 
 ## Step 7 — hand off (you never merge)
 
-Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, and outstanding review findings (codex or revmux) with the round they came from. To an orchestrator caller, write that report to `/private/tmp/report-<id>.md` and return only the one-line form its prompt asks for (`READY #<pr> <branch> <worktree> findings=<n>`) — its context is the scarce one; it checks the work and merges. To the owner directly, that's the handoff — they (or their orchestrator) merge.
+Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, and outstanding review findings (codex or revmux) with the round they came from. To an orchestrator caller, post that report as a PR comment — `gh pr comment <pr> --body-file - <<'EOF' … EOF` (stdin, no temp file: sandboxed subagents are often refused writes outside their worktree, e.g. `/private/tmp`, and a report file in the worktree would block its removal) — and return only the one-line form its prompt asks for (`READY #<pr> <branch> <worktree> findings=<n>`) — its context is the scarce one; it checks the work and merges. To the owner directly, that's the handoff — they (or their orchestrator) merge.
 
 **Do not merge, even a trivial fix** — checking and merging is the supervisor's independent gate, and self-merging is exactly what bypasses it. Do not close the bead either: it closes on merge, by whoever merged. If you delivered directly for the owner and they say "merged", then close it yourself, Dolt-synced:
 
