@@ -86,7 +86,9 @@ Pane agents (muse/agy in agterm panes) as developers → `references/panes.md`.
 
 ## Step 4 — Supervise
 
-Wait — but never unbounded: arm a watchdog (`Bash` `run_in_background` `sleep 1800`–`3600`) per wait, and when it fires check the real state yourself (`gh pr checks`, `gh pr view --json mergeable`). After every merge, check sibling open PRs for `CONFLICTING` at once — a conflicting PR gets no `pull_request` CI, so its developer or CI watcher waits forever; send the developer to merge `origin/master`. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
+**A turn never ends idle.** End one with ready beads and no live developer only after a messenger alert went out; a phase/slice boundary inside work the owner already asked for is not a decision — continue.
+
+Wait — but never unbounded: arm a watchdog (`Bash` `run_in_background` `sleep 900`–`1800`) per wait, and when it fires check the real state yourself (`gh pr checks`, `gh pr view --json mergeable`). After every merge, check sibling open PRs for `CONFLICTING` at once — a conflicting PR gets no `pull_request` CI, so its developer or CI watcher waits forever; send the developer to merge `origin/master`. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
 
 On a result: save the handoff below its first line to `/private/tmp/report-<id>.md` yourself (the verifier reads it there — sandboxed subagents often can't write outside their worktree), then act on the line:
 
@@ -135,6 +137,7 @@ SCOPE #<pr> <the unrequested change> CI #<pr> <state>
 - `MERGE-OK` → merge. That is the whole rule — an unattended run needs no further authorization.
 - `GAP` / `FINDINGS` / `CI` → `SendMessage` the developer (or brief the pane) with the verifier's line + `/private/tmp/verify-<id>.md`; it fixes and re-pushes; re-verify. Two failed round-trips → park + Telegram.
 - `SCOPE` → leave the PR ready, park with `step-5-merge`, Telegram for sign-off, keep delivering.
+- **Codex unavailable** (quota/outage): verifiers review with Claude only and you list the PR under `codex-debt` on the status board. When codex returns, run one codex review over the debt list before new merges; findings become beads.
 
 **Merge** — stop the pane agent first if one owns the worktree (`references/panes.md`):
 
