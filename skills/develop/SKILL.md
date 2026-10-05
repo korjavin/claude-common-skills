@@ -95,7 +95,7 @@ revmux new --task <bead-id> --run 01-initial            # write scope.md (branch
 revmux --task <bead-id> --run 01-initial --profile <revmux-profile> --no-tui > .revmux-dev/01.json 2> .revmux-dev/01.log
 ```
 
-Run it with `run_in_background` and wait for the notification (3–15 min). `sources.degraded` non-empty or exit `2` → stop and report the failure, not a verdict.
+Run it in the **foreground** as one blocking `Bash` call (`timeout: 600000`; a round takes 3–10 min). Never background it and poll — every poll turn re-reads your whole context. `sources.degraded` non-empty or exit `2` → stop and report the failure, not a verdict.
 
 **3. Loop, max 3 iterations.** Gating = `critical` + `major` in `findings`; minors never gate, `open_questions` go to the handoff. Per iteration: triage each gating finding at its location (invalid → say why), fix the valid ones **with the same `<agent>`** (headless agents get the findings JSON path plus the fix contract in a fresh prompt), run touched tests, commit, then a new round `0N-after-fix` with the same `<revmux-profile>` scoped to the fix delta only (`git diff <reviewed-sha>..HEAD`, previous `findings.json` in context) — unless the project's `CLAUDE.md`/`.revmux/profile.md` says otherwise. No gating finding fixed → no new round. Stop on the first of: a round with zero gating findings (clean), a gating finding repeating unchanged from the previous round (the fix is not landing — name it and stop), or the third re-review. Whatever is still gating after that is **outstanding** in the handoff and blocks autonomous merge.
 

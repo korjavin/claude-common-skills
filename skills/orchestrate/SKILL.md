@@ -64,7 +64,7 @@ Launch tracks into free slots, up to `N`. `UNDERSPEC` → Step 0.
 
 `FAIL`/`LOST` → another session has it: drop it locally, never touch its status. `WARN … human` → it's a park whose questions are unanswered: re-park per `references/failures.md`, no second Telegram.
 
-Spawn the developer: `Agent`, `isolation: "worktree"`, `run_in_background: true`, `model: "opus"` (owner directive: coding is opus-class). Worktrees are cut from `origin/master` (default `worktree.baseRef: fresh`); a branch carrying `chore: bd claim` commits must be recreated from `origin/master`.
+Spawn the developer: `Agent`, `isolation: "worktree"`, `run_in_background: true`, `model: "opus"` (owner directive: coding is opus-class; `"sonnet"` for small/trivial beads). Worktrees are cut from `origin/master` (default `worktree.baseRef: fresh`); a branch carrying `chore: bd claim` commits must be recreated from `origin/master`.
 
 ```markdown
 You are a developer agent. Invoke the develop skill for bd issue `<id>` (bundle: <ids>) and follow
@@ -89,6 +89,8 @@ Pane agents (muse/agy in agterm panes) as developers → `references/panes.md`.
 **A turn never ends idle.** End one with ready beads and no live developer only after a messenger alert went out; a phase/slice boundary inside work the owner already asked for is not a decision — continue.
 
 Wait — but never unbounded: arm a watchdog (`Bash` `run_in_background` `sleep 900`–`1800`) per wait, and when it fires check the real state yourself (`gh pr checks`, `gh pr view --json mergeable`). After every merge, check sibling open PRs for `CONFLICTING` at once — a conflicting PR gets no `pull_request` CI, so its developer or CI watcher waits forever; send the developer to merge `origin/master`. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
+
+A bead edited while its developer runs (owner or architect changed it) → `SendMessage` the developer to re-read `bd show <id>` at once. A turn that ends in front of the owner ends with the status table (short description per bead, ETA for in-flight work) — the owner shouldn't have to ask "so?".
 
 On a result: save the handoff below its first line to `/private/tmp/report-<id>.md` yourself (the verifier reads it there — sandboxed subagents often can't write outside their worktree), then act on the line:
 
@@ -179,7 +181,7 @@ End the session with the board's final state: delivered / parked / blocked / orp
 ## Standing guardrails
 
 1. **Dolt sync goes through `bead.sh`** — it pulls before and pushes after every write and checks the push; for one-off bd writes outside it (Step 0's supersede close), `bd dolt pull` before and `bd dolt pull && bd dolt push` after when a remote exists.
-2. **Opus-class for code, Fable-class for architecture**; sonnet/haiku only for read-only helpers (planner, verifier, CI watcher, pane triage).
+2. **Opus-class for code** (sonnet for small/trivial beads — owner 2026-10-01), **Fable-class for architecture**; sonnet/haiku for read-only helpers (planner, verifier, CI watcher, pane triage).
 3. **You never work with code.** Developers and finishers do — including conflicts and dead developers' handoffs.
 4. **Merge commits only. Never push to master/main or force-push.**
 5. **Never respawn over a worktree holding work**; `bead.sh merge` removes worktrees only after merge.
