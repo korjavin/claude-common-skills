@@ -125,7 +125,8 @@ UNREQUESTED user-visible changes, new public APIs, or architecture decisions the
 are not; (4) outstanding findings in the report: each valid or invalid, with why; (5) deploy-compat —
 the running server must not start refusing config, env or data it accepts today (new required env,
 stricter validation, format change, migration) without a fallback, unless the bead records the prod value
-as checked → `SCOPE #<pr> deploy-compat: <what prod must have>`.
+as checked → `SCOPE #<pr> deploy-compat: <what prod must have>`; (6) the report has a `Review:` line naming
+a route that ran — missing or `none` → `GAP #<pr> no review`.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
 there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
@@ -151,7 +152,7 @@ It marks the PR ready, merges with a merge commit (never squash/rebase), confirm
 
 ## Escalation — reach the owner where they are
 
-Escalate only what needs the owner: a bead parked after two failures, CI red after the developer's fix passes, a PR needing sign-off, open questions from the architect or a BLOCKED developer, or a run that can't proceed at all. One message per situation, related questions batched. **Never** ping progress or success. Park only what's blocked and keep delivering the rest — never stall the fleet waiting for an answer. ("Telegram" elsewhere in this skill means this section.)
+Escalate only what needs the owner: a bead parked after two failures, CI red after the developer's fix passes, a PR needing sign-off, open questions from the architect or a BLOCKED developer, or a run that can't proceed at all. One message per situation, related questions batched. Each question stands alone: plain words, no bead ids without their meaning, what changes under each option, your default. **Never** ping progress or success. Park only what's blocked and keep delivering the rest — never stall the fleet waiting for an answer. ("Telegram" elsewhere in this skill means this section.)
 
 **Where it goes:**
 
