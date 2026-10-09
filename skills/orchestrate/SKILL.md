@@ -90,7 +90,7 @@ Pane agents (muse/agy in agterm panes) as developers → `references/panes.md`.
 
 Wait — but never unbounded: arm a watchdog (`Bash` `run_in_background` `sleep 900`–`1800`) per wait, and when it fires check the real state yourself (`gh pr checks`, `gh pr view --json mergeable`). After every merge, check sibling open PRs for `CONFLICTING` at once — a conflicting PR gets no `pull_request` CI, so its developer or CI watcher waits forever; send the developer to merge `origin/master`. A developer's completion is a real `<task-notification>` for its task id — nothing else (`sys_read_inbox` fires "completed" ~1 min after spawn while it still runs; don't poll it). Pane developers are watched by `scripts/pane-watch.sh` (see `references/panes.md`), which only speaks when you must act.
 
-A bead edited while its developer runs (owner or architect changed it) → `SendMessage` the developer to re-read `bd show <id>` at once. A turn that ends in front of the owner ends with the status table (short description per bead, ETA for in-flight work) — the owner shouldn't have to ask "so?".
+A bead edited while its developer runs (owner or architect changed it) → `SendMessage` the developer to re-read `bd show <id>` at once. Print the status table (short description per bead, ETA for in-flight work) before any blocking wait over 2 min and at the end of every turn — the owner shouldn't have to ask "so?". Never send the owner into a pane: you or pane-watch answer pane prompts; only the decision itself goes to the owner.
 
 On a result: save the handoff below its first line to `/private/tmp/report-<id>.md` yourself (the verifier reads it there — sandboxed subagents often can't write outside their worktree), then act on the line:
 
@@ -157,7 +157,7 @@ Escalate only what needs the owner: a bead parked after two failures, CI red aft
 **Where it goes:**
 
 - **Owner said they're offline / away, or the run is unattended** → straight to a messenger skill.
-- **Otherwise** → ask in the session, and arm a one-hour fallback: `Bash` `run_in_background` `sleep 3600`. If it fires before the owner answers, send the same question via a messenger skill. An answer arriving first → `TaskStop` the timer.
+- **Otherwise** → ask in plain text as the last lines of a turn — never `AskUserQuestion`: it freezes the loop until answered (hand-backs, watchdogs and this fallback all queue behind it) — and arm a one-hour fallback: `Bash` `run_in_background` `sleep 3600`. If it fires before the owner answers, send the same question via a messenger skill. An answer arriving first → `TaskStop` the timer.
 - **Messenger skill:** `omniagent-telegram-alert` preferred; when it isn't available or fails, any active skill/tool that reaches the owner (Zulip, Slack, …). None at all → note it on the status board and in the final report.
 
 Answers come back in-session (the owner replies here, or tells you on return); un-park per `references/failures.md`.
