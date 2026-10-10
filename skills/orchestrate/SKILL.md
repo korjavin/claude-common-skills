@@ -150,6 +150,8 @@ SCOPE #<pr> <the unrequested change> CI #<pr> <state>
 
 It marks the PR ready, merges with a merge commit (never squash/rebase), confirms MERGED, closes the beads with Dolt sync, removes the worktree and branch. `FAIL merge … CONFLICTING` → `SendMessage` the developer to merge `origin/master`, resolve, re-push, CI green, then retry (developer gone → finisher, `references/failures.md`). `WARN … kept` → the worktree had uncommitted changes; leave it. Other `FAIL` twice → park + Telegram. Then refill the slot.
 
+**Closing an epic** — when its last child merges, before the epic itself closes: spawn one sonnet verifier with the epic's "Done when" lines. For each line it names the child whose acceptance covers it, or runs it end-to-end on the running app (a real session, not a unit test). An uncovered or failing line becomes a new child bead and the epic stays open. Per-PR verify can't see a requirement that fell between children (bl-3tv 2026-10-10: 12 PRs green, the epic's core behaviour never built).
+
 ## Escalation — reach the owner where they are
 
 Escalate only what needs the owner: a bead parked after two failures, CI red after the developer's fix passes, a PR needing sign-off, open questions from the architect or a BLOCKED developer, or a run that can't proceed at all. One message per situation, related questions batched. Each question stands alone: plain words, no bead ids without their meaning, what changes under each option, your default. **Never** ping progress or success. Park only what's blocked and keep delivering the rest — never stall the fleet waiting for an answer. ("Telegram" elsewhere in this skill means this section.)

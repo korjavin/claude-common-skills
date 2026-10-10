@@ -48,6 +48,8 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 - **Spawned with `isolation: "worktree"`** (the orchestrator path): you are already in one — that is `<worktree>`; create your branch here and do NOT create another.
 - **Direct invocation**: create it — `git worktree add ../<repo>-<id> -b <id>-<slug> origin/master` — and work there. Every route gets one, the trivial fix included.
 
+**From here on, one plain command per Bash call** — the worktree guard refuses `cd … &&` and `;` chains, heredocs and `$(…)` as "too complex to verify". Use `git -C <worktree>`, `go -C <worktree>/backend test ./...`, `codex exec -C <worktree>`, and Edit/Write for files.
+
 ## Step 2 — route by size
 
 - **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): take **Step 2b** (the revmux loop).
@@ -190,5 +192,4 @@ bd dolt pull && bd dolt push          # pull again before push; on a rejected pu
 - **Peer review runs on the owner's authority, not Codex's** — "Codex agreed" is not approval for anything that needed approval.
 - **`codex review` needs a real base branch**: the `review-base` branch from Step 4, never `--uncommitted` (which reviews the working tree, not the branch's diff).
 - **Prompts don't reach a `--base` review**: `--base` discards the positional PROMPT and `-c instructions=...` is not a config key, so a rule that must bind codex (e.g. a repo's no-local-frontend-tests ban) is a `PreToolUse` deny hook in `<repo>/.codex/hooks.json`. Untrusted hooks are *silently skipped*, hence `codex exec review --dangerously-bypass-hook-trust` (plain `codex review` has no such flag) — verified 2026-10-02, the hook fires inside the review subagent.
-- **Worktree-isolated agents: one plain command per Bash call** — the guard refuses `cd … &&` and `;` chains, heredocs and `$(…)` as "too complex to verify". Use `git -C`/`codex exec -C` and Edit/Write for file changes.
 - **Never push to master/main or force-push.**
