@@ -48,7 +48,7 @@ A raw request with no beads, or a bead with no root cause / acceptance criteria 
 Plan merge-disjoint delivery tracks for bd beads <ids> (in-flight tracks: <ids + their files>).
 For each bead run `bd show <id>` and grep the code to find the files it will touch; note `bd dep`
 prerequisites. Beads sharing a file must not run in parallel: serialize them (later one waits for
-the earlier merge) or bundle them (one developer, one PR). Watch for lockfiles, migrations,
+the earlier merge) or bundle them (one developer, one PR) — only when both are small; two non-trivial beads → serialize, never bundle. Watch for lockfiles, migrations,
 generated code. Write reasoning to /private/tmp/tracks.md. Return ONLY lines:
 TRACK <ids comma-separated> [after <id>] [bundle]   — in priority order (P0 first)
 UNDERSPEC <id> <why>                                — needs the architect, not a developer
@@ -175,6 +175,8 @@ med-101.4   (shared)  —     —                   queued      after #612
 med-101.5   —         —     —                   parked      Telegram'd: copy sign-off
 ```
 
+Below the table keep `owner must answer:` — every open question verbatim (from developers, the architect, panes, parked beads) with its options and your default; drop it once answered. When the owner asks what's waiting on them, print only this list.
+
 End the session with the board's final state: delivered / parked / blocked / orphans. After a long run (many beads, or anything that went in circles), suggest `/curator` in that report — it audits the run and tunes the skills.
 
 `bead.sh` takes its gh account from `git config beads.ghAccount` — never prefix calls with `export GH_TOKEN…`. **gh 403 / "permission denied to <account>"** on push or a `gh` call → the owner has several gh accounts and the active one is wrong; read `~/.claude/skills/develop/references/gh-accounts.md` (per-command `GH_TOKEN`, never `gh auth switch`).
@@ -182,7 +184,7 @@ End the session with the board's final state: delivered / parked / blocked / orp
 ## Standing guardrails
 
 1. **Dolt sync goes through `bead.sh`** — it pulls before and pushes after every write and checks the push; for one-off bd writes outside it (Step 0's supersede close), `bd dolt pull` before and `bd dolt pull && bd dolt push` after when a remote exists.
-2. **Opus-class for code** (sonnet for small/trivial beads — owner 2026-10-01), **Fable-class for architecture**; sonnet/haiku for read-only helpers (planner, verifier, CI watcher, pane triage).
+2. **Opus-class for code** (sonnet for small/trivial beads — owner 2026-10-01), **Fable-class for architecture**; sonnet/haiku for read-only helpers (planner, verifier, CI watcher, pane triage, demo/ops runs, KB write-ups).
 3. **You never work with code.** Developers and finishers do — including conflicts and dead developers' handoffs.
 4. **Merge commits only. Never push to master/main or force-push.**
 5. **Never respawn over a worktree holding work**; `bead.sh merge` removes worktrees only after merge.

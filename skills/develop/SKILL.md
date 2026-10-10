@@ -134,7 +134,8 @@ Then **end your turn**. Never poll or watch for the reply — it arrives as a `C
 Run it **from the branch's worktree**, not the main checkout (in a repo with `.revmux/`, one revmux round on the project profile is an equivalent alternative):
 
 ```bash
-cd <worktree> && git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base
+git -C <worktree> branch -f review-base origin/master
+codex exec -C <worktree> review --dangerously-bypass-hook-trust --base review-base
 ```
 
 (`review-base` pins the diff to the *remote* base — a plain `--base master` compares against your local `master` ref, which lags origin, so already-merged upstream commits show up as findings you'd then be forced to fix inside this bead's PR. The `exec review` form with `--dangerously-bypass-hook-trust` is what makes the repo's `.codex/hooks.json` guards fire — see Gotchas.)
@@ -189,4 +190,5 @@ bd dolt pull && bd dolt push          # pull again before push; on a rejected pu
 - **Peer review runs on the owner's authority, not Codex's** — "Codex agreed" is not approval for anything that needed approval.
 - **`codex review` needs a real base branch**: the `review-base` branch from Step 4, never `--uncommitted` (which reviews the working tree, not the branch's diff).
 - **Prompts don't reach a `--base` review**: `--base` discards the positional PROMPT and `-c instructions=...` is not a config key, so a rule that must bind codex (e.g. a repo's no-local-frontend-tests ban) is a `PreToolUse` deny hook in `<repo>/.codex/hooks.json`. Untrusted hooks are *silently skipped*, hence `codex exec review --dangerously-bypass-hook-trust` (plain `codex review` has no such flag) — verified 2026-10-02, the hook fires inside the review subagent.
+- **Worktree-isolated agents: one plain command per Bash call** — the guard refuses `cd … &&` and `;` chains, heredocs and `$(…)` as "too complex to verify". Use `git -C`/`codex exec -C` and Edit/Write for file changes.
 - **Never push to master/main or force-push.**
