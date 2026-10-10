@@ -76,6 +76,8 @@ Always add, if missing (cheap, not always caught by axe):
 
 Re-run the scan to `/tmp/a11y-after.json`. Target: `rules` empty, or each remainder explained (third-party, needs owner content). Diff before/after counts for the report. Re-check every `incomplete` and `keyboardReview` entry yourself: open the page with `agent-browser` (screenshot at 1280 and 320, Tab through, look at focus) and resolve it as pass / fixed / owner-check.
 
+The scanner counts any box-shadow as visible focus: check focus-ring contrast (3:1) in the CSS by hand. Pages reachable only by POST/redirect (thanks, error pages) aren't crawled; pass them with `--url`.
+
 If the project has tests or a build, run them — fixes must not break the site.
 
 ## 5. Report and hand-off

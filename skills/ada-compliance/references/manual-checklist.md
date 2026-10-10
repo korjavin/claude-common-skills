@@ -34,7 +34,7 @@ Automated scanning covers roughly a third of WCAG AA. Tick what was verified and
 ## Statement
 
 Generate with the [W3C WAI statement generator](https://www.w3.org/WAI/planning/statements/generator/) or write `accessibility.html` with:
-1. Commitment + standard: "We aim to conform to WCAG 2.2 Level AA." Status: *partially conformant* until manual checks are done — never "fully" without them.
+1. Target + method, never a status: "We aim to meet WCAG 2.2 Level AA" plus how the site is tested (automated scan, which manual checks). Never write "partially/fully conformant" or "compliant" on the page; it is public and legally exposed.
 2. Measures taken: date of last review, automated scan + which manual checks.
 3. Known limitations: third-party content and anything in Owner TODO, with an alternative route (email/phone).
 4. Feedback contact (owner-provided email/phone) and response time (e.g. 2 business days).

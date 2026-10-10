@@ -30,3 +30,4 @@ Research done 2026-10-10 (Claude web search + AGY second pass). Re-check legal d
 One line per site processed: date, site, stack, what the skill lacked or got wrong, what was changed.
 
 - 2026-10-10 — skill created; scanner self-test + 3-page fixture pass.
+- 2026-10-10 — backlayer-site (static HTML + Go server): scanner passed a focus ring drawn only as a pale box-shadow (~1.1:1) — noVisibleFocus counts any box-shadow as visible, so check focus-ring contrast by hand; crawl misses pages only reachable by form POST (thanks, server error pages) — pass them with --url. No skill change yet.
