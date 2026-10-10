@@ -48,7 +48,7 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 - **Spawned with `isolation: "worktree"`** (the orchestrator path): you are already in one — that is `<worktree>`; create your branch here and do NOT create another.
 - **Direct invocation**: create it — `git worktree add ../<repo>-<id> -b <id>-<slug> origin/master` — and work there. Every route gets one, the trivial fix included.
 
-**From here on, one plain command per Bash call** — the worktree guard refuses `cd … &&` and `;` chains, heredocs and `$(…)` as "too complex to verify". Use `git -C <worktree>`, `go -C <worktree>/backend test ./...`, `codex exec -C <worktree>`, and Edit/Write for files.
+**From here on, one plain command per Bash call** — the worktree guard refuses anything it cannot statically read as "too complex to verify": `cd`, `&&`/`;` chains, heredocs, `$(…)`, `eval`, shell loops, `node -e`/`python -c` with variables. Use `git -C <worktree>`, `go -C <worktree>/backend test ./...`, `codex exec -C <worktree>`, and Edit/Write for files; a multi-step check is a script file you Write, then run with one `node <file>` / `python3 <file>`.
 
 ## Step 2 — route by size
 
