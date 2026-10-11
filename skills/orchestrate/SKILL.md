@@ -138,6 +138,10 @@ SCOPE #<pr> <the unrequested change> CI #<pr> <state>
 ```
 
 - `MERGE-OK` → merge. That is the whole rule — an unattended run needs no further authorization.
+  Exception, compat-risky PRs (stored/vault data shape, sync, auth/crypto, wire formats, deletions): the
+  developer's own `codex exec review` doesn't count — it sees one diff, not the upgrade path. Before merging,
+  send the codex pane (peer-chat) the PR, or a risky epic's whole PR sequence, asking what breaks for existing
+  installs/data; no pane → one revmux round on the cumulative diff. Merge after its findings are resolved.
 - `GAP` / `FINDINGS` / `CI` → `SendMessage` the developer (or brief the pane) with the verifier's line + `/private/tmp/verify-<id>.md`; it fixes and re-pushes; re-verify. Two failed round-trips → park + Telegram.
 - `SCOPE` → leave the PR ready, park with `step-5-merge`, Telegram for sign-off, keep delivering.
 - **Codex unavailable** (quota/outage): verifiers review with Claude only and you list the PR under `codex-debt` on the status board. When codex returns, run one codex review over the debt list before new merges; findings become beads.
