@@ -115,7 +115,7 @@ CONFLICT #<pr>      (if `gh pr view <pr> --json mergeable` says CONFLICTING)
 
 ## Step 5 — Verify & merge
 
-Don't read the diff — spawn a **verifier**: `Agent`, `model: "sonnet"`, `run_in_background: true`:
+Every PR — including one you pushed yourself — gets a **verifier** before merge; don't read the diff yourself: `Agent`, `model: "sonnet"`, `run_in_background: true`:
 
 ```markdown
 Verify PR #<pr> for bead(s) <ids> before merge. Read `bd show <id>`, /private/tmp/report-<id>.md

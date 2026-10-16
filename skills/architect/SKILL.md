@@ -59,7 +59,7 @@ A developer is only as good as the bead. A good bead contains:
 - **Symptom** — what the owner saw (exact error text / numbers if given).
 - **Root cause** — your verified hypothesis, with `file:line` pointers to the actual code.
 - **Fix direction** — the lazy-correct approach, reusing existing machinery you named. Say what NOT to do if there's a trap.
-- **Repo landmines** — the guard tests / conventions this change will trip (see the project's CLAUDE.md).
+- **Repo landmines** — the guard tests / conventions this change will trip, and the project's stated invariants (privacy boundary, where builds run, what must not change for live users) — see the project's CLAUDE.md; drop any option that breaks one before presenting it.
 - **Acceptance criteria** — concrete, testable.
 - **Size** — one bead = one developer run of ≲100 turns: one screen or component, a handful of files. Larger → split into independently deliverable children (developer cost grows ~turns²: 2026-10-09 screen-rewrite beads ran 256 turns for 80–91M tokens vs 3–5M for 30-turn beads). What still can't split, call out as huge (it routes to the revmux loop on the developer side).
 - **A `poc`/`polish` label and a priority** (P0–P4).
