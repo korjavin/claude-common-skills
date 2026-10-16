@@ -126,22 +126,26 @@ are not; (4) outstanding findings in the report: each valid or invalid, with why
 the running server must not start refusing config, env or data it accepts today (new required env,
 stricter validation, format change, migration) without a fallback, unless the bead records the prod value
 as checked → `SCOPE #<pr> deploy-compat: <what prod must have>`; (6) the report has a `Review:` line naming
-a route that ran — missing or `none` → `GAP #<pr> no review`.
+a route that ran — missing or `none` → `GAP #<pr> no review`; (7) every fake or stub of an external
+component the tests rely on (proxy, IdP, shared router) cites the real component's contract it mirrors
+(header names, redirects) — a fake with no source → `GAP`; (8) risk — the diff touches auth, trust
+boundaries (proxy headers, shared networks, allowlists), crypto, secrets, stored-data shape, wire formats
+or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
 there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
 asserted behaviours to confirm the tests catch it; remove the worktree after.
 Write details to /private/tmp/verify-<id>.md. Return exactly one line:
-MERGE-OK #<pr>
+MERGE-OK #<pr>                       RISKY #<pr> <area>
 GAP #<pr> <what's missing>          FINDINGS #<pr> <n valid — summary>
 SCOPE #<pr> <the unrequested change> CI #<pr> <state>
 ```
 
-- `MERGE-OK` → merge. That is the whole rule — an unattended run needs no further authorization.
-  Exception, compat-risky PRs (stored/vault data shape, sync, auth/crypto, wire formats, deletions): the
-  developer's own `codex exec review` doesn't count — it sees one diff, not the upgrade path. Before merging,
-  send the codex pane (peer-chat) the PR, or a risky epic's whole PR sequence, asking what breaks for existing
-  installs/data; no pane → one revmux round on the cumulative diff. Merge after its findings are resolved.
+- `MERGE-OK` → merge; an unattended run needs no further authorization.
+- `RISKY` → before merging, send the codex pane (peer-chat) the PR, or the epic's whole PR sequence: what
+  breaks for existing installs/data, how can the trust boundary be bypassed. No pane → one revmux round on
+  the cumulative diff. Merge after its findings are resolved. The developer's own `codex exec review` doesn't
+  count — it sees one diff, not the system (a2a 2026-10-15: 0/5 auth PRs got this, 5 security beads after merge).
 - `GAP` / `FINDINGS` / `CI` → `SendMessage` the developer (or brief the pane) with the verifier's line + `/private/tmp/verify-<id>.md`; it fixes and re-pushes; re-verify. Two failed round-trips → park + Telegram.
 - `SCOPE` → leave the PR ready, park with `step-5-merge`, Telegram for sign-off, keep delivering.
 - **Codex unavailable** (quota/outage): verifiers review with Claude only and you list the PR under `codex-debt` on the status board. When codex returns, run one codex review over the debt list before new merges; findings become beads.

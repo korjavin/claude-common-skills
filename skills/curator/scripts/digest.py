@@ -31,13 +31,16 @@ def short(s, n=160):
 def scan(path):
     r = dict(title="", start="", end="", models=collections.Counter(), tok=collections.defaultdict(lambda: [0, 0, 0, 0]),
              skills=collections.Counter(), tools=collections.Counter(), errors=[], nerr=0, prompts=[], agents=[],
-             compactions=0, cost=None, prs=set(), bash=collections.Counter())
+             compactions=0, cost=None, prs=set(), bash=collections.Counter(), uuids=set())
+    seen = set()
     for line in open(path, errors="replace"):
         try:
             o = json.loads(line)
         except ValueError:
             continue
         t, ts = o.get("type"), o.get("timestamp", "")
+        if o.get("uuid"):
+            r["uuids"].add(o["uuid"])
         if ts:
             r["start"] = r["start"] or ts
             r["end"] = ts
@@ -52,6 +55,11 @@ def scan(path):
         elif t == "assistant":
             m = o.get("message", {})
             model, u = m.get("model", "?"), m.get("usage") or {}
+            # one jsonl line per content block, each repeating the call's usage: count it once per message.id
+            if m.get("id"):
+                if m["id"] in seen:
+                    u = {}
+                seen.add(m["id"])
             k = r["tok"][model]
             k[0] += u.get("input_tokens", 0); k[1] += u.get("cache_creation_input_tokens", 0)
             k[2] += u.get("cache_read_input_tokens", 0); k[3] += u.get("output_tokens", 0)
@@ -96,11 +104,20 @@ def fmt_tok(tok):
 
 out, index = [], []
 sessions = sorted((f for d in dirs for f in glob.glob(f"{d}/*.jsonl") if os.path.getmtime(f) >= cutoff), key=os.path.getmtime)
+scans = {f: scan(f) for f in sessions}
+# a resumed or forked session repeats its parent's messages: drop a session whose uuids another one already holds
+rank = {f: (len(scans[f]["uuids"]), os.path.isdir(f[:-6] + "/subagents"), -i) for i, f in enumerate(sessions)}
+dups = {f for f in sessions if scans[f]["uuids"] and any(
+    g != f and scans[f]["uuids"] <= scans[g]["uuids"] and rank[g] > rank[f] for g in sessions)}
+sessions = [f for f in sessions if f not in dups]
 for f in sessions:
     sid = os.path.basename(f)[:-6]
-    r = scan(f)
+    r = scans[f]
+    # the kept session inherits the dropped copies' subagents and cost (subagents stay in the parent's dir)
+    own = [f] + [d for d in dups if scans[d]["uuids"] <= r["uuids"]]
+    r["cost"] = max((scans[d]["cost"] or 0 for d in own), default=0) or None
     subs = []
-    for sf in sorted(glob.glob(f"{f[:-6]}/subagents/agent-*.jsonl")):
+    for sf in sorted(sf for d in own for sf in glob.glob(f"{d[:-6]}/subagents/agent-*.jsonl")):
         meta = {}
         try:
             meta = json.load(open(sf[:-6] + ".meta.json"))
@@ -120,5 +137,5 @@ for f in sessions:
             f"- agents spawned: " + " ‖ ".join(r["agents"][:20]), "- subagents:", *subs, ""]
 
 open(a.out, "w").write("\n".join(out))
-print(f"{len(sessions)} sessions in {len(dirs)} dirs, last {a.days:g}d → {a.out}")
+print(f"{len(sessions)} sessions in {len(dirs)} dirs, last {a.days:g}d → {a.out}" + (f" ({len(dups)} duplicates of other sessions skipped)" if dups else ""))
 print("\n".join(index))
