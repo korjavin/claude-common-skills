@@ -47,7 +47,7 @@ The digest gives per session: cost, tokens by model (cache-read share), compacti
 
 **6. Report** to `~/.claude/projects/<slug>/audit/<YYYY-MM-DD>-curator.md` — outside the project tree, so it can never be committed by accident: numbers table, ranked findings with evidence, proposals as concrete diffs or exact text, and what last audit's proposals did.
 
-**7. Apply.** Interactive: show the top findings in a few lines each and ask (`AskUserQuestion`, multiSelect) which to apply; apply the approved ones to the skill source repo / `CLAUDE.md` / `.revmux/` / memory, and save what the owner rejected (and why) as a memory so the next audit doesn't re-propose it. Commit only when asked. Subagent mode: apply nothing; return the report path plus the top 5 findings, one line each.
+**7. Apply.** Interactive: show the top findings in a few lines each and ask (`AskUserQuestion`, multiSelect) which to apply; apply the approved ones to the skill source repo / `CLAUDE.md` / `.revmux/` / memory, and save what the owner rejected (and why) as a memory so the next audit doesn't re-propose it. Project files (`CLAUDE.md`, `.revmux/`, scripts) go on a branch `curator-<date>` off the default branch, behind a PR (privacy pre-check first) whose link goes in the report — never left uncommitted in a worktree (2026-10-14's approved rules sat in one and never shipped); step 2 starts from that PR's state. Subagent mode: apply nothing; return the report path plus the top 5 findings, one line each.
 
 ## Lenses — what to look for
 
