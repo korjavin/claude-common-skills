@@ -41,9 +41,9 @@ def scan(path):
         t, ts = o.get("type"), o.get("timestamp", "")
         if o.get("uuid"):
             r["uuids"].add(o["uuid"])
-        if ts:
-            r["start"] = r["start"] or ts
-            r["end"] = ts
+        if ts:  # min/max: a resumed session copies its parent's older messages after its own first line
+            r["start"] = min(r["start"] or ts, ts)
+            r["end"] = max(r["end"], ts)
         if t == "ai-title":
             r["title"] = o.get("aiTitle", "")
         elif t == "cost-state":
