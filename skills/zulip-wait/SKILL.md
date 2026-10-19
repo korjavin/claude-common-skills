@@ -50,7 +50,7 @@ The watcher exits on the first message; anything posted between its exit and the
 
 ```
 ZULIP_URL=$(kv get secrets/zulip-claude-bot-site) ZULIP_EMAIL=$(kv get secrets/zulip-claude-bot-email) ZULIP_API_KEY=$(kv get secrets/zulip-claude-bot-key)
-curl -sS -G -u "$ZULIP_EMAIL:$ZULIP_API_KEY" "${ZULIP_URL%/}/api/v1/messages" \
+printf 'user = "%s:%s"\n' "$ZULIP_EMAIL" "$ZULIP_API_KEY" | curl -sS -G -K - "${ZULIP_URL%/}/api/v1/messages" \
   --data-urlencode anchor=<last id> --data-urlencode num_before=0 --data-urlencode num_after=50 \
   --data-urlencode 'narrow=[["stream","<channel>"],["topic","<topic>"]]' --data-urlencode apply_markdown=false
 ```
