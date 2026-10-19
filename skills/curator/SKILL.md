@@ -23,7 +23,7 @@ You are the **curator**: the team's retrospective. The orchestrator, architect a
 | Beads | `bd list --all --json` (reopened, superseded, `fix`-of-`fix` chains, parked/`human`), `bd show <id>` notes |
 | revmux | `<project>/.revmux/tasks/` and each worktree's; the revmux skill's **self mode** reads them for you |
 | Pane agents | codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (filter by `cwd`), muse `~/.local/share/muse/sessions/`, pane-watch logs `/private/tmp/orch-panes-*.log` |
-| Process rules | the skills source repo (`~/Projects/claude-common-skills/skills/` — `~/.claude/skills/` is a synced copy, never edit it), project `CLAUDE.md`, `.revmux/` |
+| Process rules | the skills source repo — the git repo `~/.claude/skills` resolves to (`readlink -f`); where that's a synced copy, the source is `~/Projects/claude-common-skills/skills/`, project `CLAUDE.md`, `.revmux/` |
 | Earlier audits | `~/.claude/projects/<slug>/audit/*.md` (outside the repo, next to memory) |
 | Code outcome | `git log`, `gh pr list --state merged`, PRs that fix files a recent PR touched |
 
@@ -36,8 +36,10 @@ You are the **curator**: the team's retrospective. The orchestrator, architect a
 **3. Overview.**
 
 ```bash
-<skill-dir>/scripts/digest.py <project> --days <N> --out /private/tmp/curator-digest.md   # stdout: one line per session
+<skill-dir>/scripts/digest.py <project> --days <N> --out <tmp>/curator-digest.md   # stdout: one line per session
 ```
+
+Cost is the session's last `totalCostUSD`, which resets on resume — for a resumed session compare tokens instead.
 
 The digest gives per session: cost, tokens by model (cache-read share), compactions, skills by attributed tokens, tool and bash-command counts, errors, owner prompts, spawned agents and every subagent's model/tokens/errors. Read the index; open the digest file only by section (`grep -A12 '^## <id>'`).
 

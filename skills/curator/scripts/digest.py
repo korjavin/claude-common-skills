@@ -3,14 +3,14 @@
 raw transcripts. Usage: digest.py <project-path> [--days N] [--out FILE]
 
 Writes one markdown block per session (main + its subagents) to --out (default
-/private/tmp/curator-digest.md) and prints a one-line index per session to stdout.
+<tempdir>/curator-digest.md) and prints a one-line index per session to stdout.
 """
-import argparse, collections, glob, json, os, re, time
+import argparse, collections, glob, json, os, re, tempfile, time
 
 ap = argparse.ArgumentParser()
 ap.add_argument("project")
 ap.add_argument("--days", type=float, default=7)
-ap.add_argument("--out", default="/private/tmp/curator-digest.md")
+ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "curator-digest.md"))
 a = ap.parse_args()
 
 root = os.path.expanduser("~/.claude/projects")

@@ -133,7 +133,9 @@ a route that ran — missing or `none` → `GAP #<pr> no review`; (7) every fake
 component the tests rely on (proxy, IdP, shared router) cites the real component's contract it mirrors
 (header names, redirects) — a fake with no source → `GAP`; (8) risk — the diff touches auth, trust
 boundaries (proxy headers, shared networks, allowlists), crypto, secrets, stored-data shape, wire formats
-or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`.
+or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`; (9) device — the diff changes a native
+shell or rendered UI and the project's CLAUDE.md names a device/visual check → that run is green on the
+PR head and you looked at its screenshots; none ran → `RISKY #<pr> device-unverified`.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
 there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
