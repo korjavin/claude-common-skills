@@ -8,52 +8,64 @@ Claude Skills are modular extensions that enhance Claude Code's capabilities. Th
 
 ## Available Skills
 
-### 🚀 [portainer-deploy](./skills/portainer-deploy/)
+### Agent process (bd / beads delivery)
 
-Automates deployment setup with GitHub Actions, GitHub Container Registry (ghcr.io), and Portainer webhooks.
+| Skill | What it does |
+|---|---|
+| [orchestrate](./skills/orchestrate/) | Supervises developer agents to deliver bd work end-to-end at a chosen concurrency; verifies and merges PRs |
+| [architect](./skills/architect/) | Planner: clarifies requirements, root-causes bugs, files bd issues/epics; never writes code |
+| [develop](./skills/develop/) | Delivers one bd issue: implement, review, PR, CI green, hand off for merge |
+| [curator](./skills/curator/) | Audits past agent sessions for waste and mistakes, turns findings into skill/CLAUDE.md improvements |
+| [open-pr-review](./skills/open-pr-review/) | Triages open PRs (e.g. from coding agents): merge, comment or close |
+| [handoff](./skills/handoff/) | Writes a HANDOFF.md so a fresh agent can continue the task |
 
-**Features:**
-- GitHub Actions workflow generation
-- Docker Compose with Traefik support
-- Multi-service deployments
-- Automatic image tagging with commit SHA
-- Portainer webhook integration
+### agterm terminal
 
-**Use when:**
-- Setting up CI/CD for Docker projects
-- Deploying with Portainer
-- Configuring Traefik reverse proxy
-- Managing multi-service applications
+| Skill | What it does |
+|---|---|
+| [agterm](./skills/agterm/) | Drives the agterm macOS terminal via `agtermctl`: sessions, panes, overlays, HTML pages, pickers, events |
+| [agterm-ask](./skills/agterm-ask/) | Asks the owner questions as an HTML page with buttons, returns answers as JSON |
+| [peer-chat](./skills/peer-chat/) | Back-and-forth conversation with a Codex/AGY agent in another agterm pane |
+| [claude-recap](./skills/claude-recap/) | Recaps what a Claude session in an agterm session was working on |
 
-[📖 Read more](./skills/portainer-deploy/README.md)
+### Messaging and other agents
 
-### 💾 [litestream-backup](./skills/litestream-backup/)
+| Skill | What it does |
+|---|---|
+| [zulip-post](./skills/zulip-post/) | Posts to Zulip as a bot, waiting for image thumbnails so they don't render as spinners |
+| [zulip-wait](./skills/zulip-wait/) | Waits for a Zulip reply without polling, via [zulip_watcher](https://github.com/korjavin/zulip_watcher) |
+| [omniagent-telegram-alert](./skills/omniagent-telegram-alert/) | Telegram alert when an agent is blocked and needs the owner |
+| [hermes](./skills/hermes/) | Delegates a task to the owner's Hermes agent over A2A |
+| [devbox](./skills/devbox/) | Delegates a task to Claude Code on the owner's devbox over A2A |
+| [stash](./skills/stash/) | Reads/writes secrets and config in a local [stash](https://github.com/umputun/stash) store via `kv` |
 
-Automates SQLite database backup and replication setup using Litestream with S3-compatible storage.
+### Deployment and infrastructure
 
-**Features:**
-- Continuous SQLite replication to S3/R2
-- Cloudflare R2, AWS S3, MinIO support
-- Docker Compose sidecar integration
-- Works with Portainer deployments
-- Configurable sync and snapshot intervals
+| Skill | What it does |
+|---|---|
+| [portainer-deploy](./skills/portainer-deploy/) | GitHub Actions + ghcr.io + Portainer webhooks, Traefik, multi-service compose |
+| [compose-service-setup](./skills/compose-service-setup/) | Git-ops compose project for a 3rd-party service, optional GHCR image vendoring |
+| [litestream-backup](./skills/litestream-backup/) | SQLite replication to S3/R2/MinIO with Litestream |
+| [prod-debug](./skills/prod-debug/) | Debugs production over SSH: logs, env, behavior |
+| [setup-dev-host](./skills/setup-dev-host/) | Bootstraps a new dev host: core tools, dotfiles, these skills |
 
-**Use when:**
-- Adding backup for SQLite databases
-- Setting up disaster recovery
-- Integrating Litestream into Docker Compose
-- Deploying with Cloudflare R2
+### Web and app development
 
-[📖 Read more](./skills/litestream-backup/README.md)
+| Skill | What it does |
+|---|---|
+| [create-go-web-project](./skills/create-go-web-project/) | Scaffolds a Go web project from your preferences |
+| [telegram-web-login](./skills/telegram-web-login/) | Adds Telegram Login Widget auth to a web app |
+| [mcp-registry-executor](./skills/mcp-registry-executor/) | MCP server design: discovery tool + sandboxed code executor over an operation registry |
+| [ada-compliance](./skills/ada-compliance/) | WCAG 2.2 AA audit and fix with axe-core in real Chromium |
+| [agent-browser](./skills/agent-browser/) | Browser automation CLI for agents: navigate, fill forms, screenshot, scrape |
 
-### 💬 [zulip-wait](./skills/zulip-wait/)
+### Notes and publishing
 
-Waits for a reply in a Zulip channel/topic without polling, using the [zulip_watcher](https://github.com/korjavin/zulip_watcher) CLI in a background run.
-
-**Use when:**
-- An agent posted a question to Zulip and needs the answer before continuing
-
-[📖 Read more](./skills/zulip-wait/SKILL.md)
+| Skill | What it does |
+|---|---|
+| [outline-sort-inbox](./skills/outline-sort-inbox/) | Sorts the Outline "Inbox": summarize, tag, file into "SortedInbox" |
+| [outline-dream](./skills/outline-dream/) | Restructures "SortedInbox": merges duplicates, splits/flattens folders |
+| [thingiverse-publish](./skills/thingiverse-publish/) | Publishes a 3D model from the repo to Thingiverse and links it in the README |
 
 ## Installation
 
@@ -68,8 +80,7 @@ git clone https://github.com/korjavin/claude-common-skills.git
 
 # Create symlinks (stays updated when you git pull)
 mkdir -p ~/.claude/skills
-ln -sf ~/.claude/claude-common-skills/skills/portainer-deploy ~/.claude/skills/portainer-deploy
-ln -sf ~/.claude/claude-common-skills/skills/litestream-backup ~/.claude/skills/litestream-backup
+for d in ~/.claude/claude-common-skills/skills/*/; do ln -sfn "$d" ~/.claude/skills/"$(basename "$d")"; done
 
 # To update later, just run:
 # cd ~/.claude/claude-common-skills && git pull
@@ -108,8 +119,8 @@ Once installed, skills activate automatically when you ask Claude relevant quest
 
 ```
 "Set up deployment with Portainer"
-"Configure CI/CD for this project"
-"Add Traefik reverse proxy"
+"/orchestrate 2"
+"Post the release note to zulip"
 ```
 
 Claude will use the appropriate skill and guide you through the process.
@@ -122,10 +133,10 @@ Each skill follows this structure:
 skills/
 └── skill-name/
     ├── SKILL.md          # Main instructions for Claude (required)
-    ├── README.md         # Documentation for users
-    ├── examples.md       # Real-world examples
-    ├── reference.md      # Detailed reference
-    └── templates/        # Template files
+    ├── README.md         # Documentation for users (optional)
+    ├── examples.md       # Examples (optional)
+    ├── reference.md      # Detailed reference (optional)
+    └── scripts/          # Helper scripts (optional)
 ```
 
 ## Contributing
