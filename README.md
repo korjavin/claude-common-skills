@@ -46,6 +46,15 @@ Automates SQLite database backup and replication setup using Litestream with S3-
 
 [📖 Read more](./skills/litestream-backup/README.md)
 
+### 💬 [zulip-wait](./skills/zulip-wait/)
+
+Waits for a reply in a Zulip channel/topic without polling, using the [zulip_watcher](https://github.com/korjavin/zulip_watcher) CLI in a background run.
+
+**Use when:**
+- An agent posted a question to Zulip and needs the answer before continuing
+
+[📖 Read more](./skills/zulip-wait/SKILL.md)
+
 ## Installation
 
 ### Option 1: Personal Skills with Auto-Updates (Recommended)
