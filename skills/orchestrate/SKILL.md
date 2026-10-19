@@ -170,6 +170,7 @@ Escalate only what needs the owner: a bead parked after two failures, CI red aft
 **Where it goes:**
 
 - **Owner said they're offline / away, or the run is unattended** → straight to a messenger skill.
+- **Inside agterm (`AGTERM_ENABLED=1`)** → the `agterm-ask` skill, every open question on one page (`run_in_background`, so it doesn't freeze the loop); a new question re-opens the page with all still-open ones. The one-hour messenger fallback below still applies. (Curator 2026-10-19: plain-text questions sank under 140 hand-backs; the owner asked for the list 5 times.)
 - **Otherwise** → ask in plain text as the last lines of a turn — never `AskUserQuestion`: it freezes the loop until answered (hand-backs, watchdogs and this fallback all queue behind it) — and arm a one-hour fallback: `Bash` `run_in_background` `sleep 3600`. If it fires before the owner answers, send the same question via a messenger skill. An answer arriving first → `TaskStop` the timer.
 - **Messenger skill:** `omniagent-telegram-alert` preferred; when it isn't available or fails, any active skill/tool that reaches the owner (Zulip, Slack, …). None at all → note it on the status board and in the final report.
 
