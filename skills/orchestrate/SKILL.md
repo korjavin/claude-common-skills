@@ -65,6 +65,8 @@ Launch tracks into free slots, up to `N`. `UNDERSPEC` → Step 0.
 
 `FAIL`/`LOST` → another session has it: drop it locally, never touch its status. `WARN … human` → it's a park whose questions are unanswered: re-park per `references/failures.md`, no second Telegram.
 
+A bead that names several screens or components ("N3–N6", "X + Y") breaks the architect's Size rule — have the architect split it before spawning (curator 2026-10-20: such beads ran 136–232 calls and all compacted, ~10× a one-screen bead).
+
 Spawn the developer: `Agent`, `isolation: "worktree"`, `run_in_background: true`, `model: "opus"` (owner directive: coding is opus-class; `"sonnet"` for small/trivial beads). Worktrees are cut from `origin/master` (default `worktree.baseRef: fresh`); a branch carrying `chore: bd claim` commits must be recreated from `origin/master`.
 
 ```markdown
@@ -74,7 +76,8 @@ it in subagent mode. The bead is ALREADY CLAIMED — skip only develop's claim c
 <revmux-profile> — use these, do not re-resolve. NEVER run frontend tests locally — CI is the
 frontend gate. Edit files only with Edit/Write — never python/sed/heredocs; one plain command per
 Bash call from your worktree root (no `cd`, `&&`, `;`, `$(…)`, loops) — the worktree guard refuses
-the rest. Open a draft PR with --body-file, drive CI green, mark it ready. Do NOT merge or
+the rest. Read code with Read/Grep and send independent reads together as parallel calls in one
+message — every separate turn re-bills your whole context. Open a draft PR with --body-file, drive CI green, mark it ready. Do NOT merge or
 close the bead. Ambiguous bead → touch no bd state, return BLOCKED. Hand back ONCE: when the PR is
 ready with CI green, or truly blocked — never while CI is merely pending (wait in the foreground,
 develop Step 6). Return as your FIRST line exactly one of the lines below, then the handoff (files
@@ -179,7 +182,7 @@ Answers come back in-session (the owner replies here, or tells you on return); u
 
 ## Status board — a file, not a turn ritual
 
-Keep `/private/tmp/orch-<actor>.md` as the source of truth; rewrite it **only when state changes** (launch, result line, merge, park). After compaction, read it first instead of re-deriving state from `bd`, `gh` and `agtermctl`.
+Keep `/private/tmp/orch-<actor>.md` as the source of truth; rewrite it **only when state changes** (launch, result line, merge, park). After compaction, read it first instead of re-deriving state from `bd`, `gh` and `agtermctl`, then re-read Steps 3–5 of this skill before the next spawn or merge — a summary keeps the roles and drops the obligations (curator 2026-10-20: a compacted orchestrator merged 16 PRs via raw `gh pr merge`, no verifier).
 
 ```
 actor: orch-20261001-2218   N=2   revmux-profile: comprehensive (pinned)   panes-file: /private/tmp/orch-panes-<actor>
