@@ -113,7 +113,22 @@ Keep `.revmux-dev/` and `.revmux/tasks/` out of the commits (add to `.git/info/e
 
 ## Step 4 — review
 
-Every branch gets an independent review before it becomes a PR (revmux-loop-delivered work already had its review loop — skip this). Two routes, tried in this order; **trivial fixes take the same routes — both are cheap, don't upgrade them to the revmux loop.**
+Every branch gets an independent review before it becomes a PR (revmux-loop-delivered work already had its review loop — skip this). Three routes, tried in this order; **trivial fixes take the same routes — all are cheap, don't upgrade them to the revmux loop.**
+
+### 4z — public review in Zulip (when you were given a Zulip role)
+
+When your invocation or orchestrator gave you a Zulip **role** and **reviewer role** (e.g. "post as webb, reviewer argus"), the review happens in the open so the owner can read it, in the **work channel**: `zm` routes there by itself (`zm -as <role> where` shows it); never pass `-c`. Follow the **zulip-agents** skill; `zm` is on PATH. No role given → take 4a/4b.
+
+1. Topic: `<bead title cut to 20 chars> <bead-id>` (reuse it if it exists). Push the branch first so the reviewer can see it: `git -C <worktree> push -u origin <branch>`.
+2. Request, mentioning the reviewer only (`-to <Reviewer>`; never the owner — they read public reviews when they want, and get mentioned only for a decision): bead id, branch, base `origin/master`, one line on what changed and what to focus on.
+3. **You start the reviewer; nobody else will** — there is no resident reviewer, a request alone gets no answer. One **fresh** reviewer per review, in the background (Bash `run_in_background`), no sandbox (it needs network). Write the prompt to a file and pass it on stdin — the inline `codex exec "<prompt>"` form gets refused by the worktree guard:
+   `/tmp/review-<bead-id>.md`: `Read the role-<reviewer-role> skill (no such skill → the zulip-agents skill's Reviewer steps, as <reviewer-role>). Topic <topic>. Review git diff origin/master...HEAD of bd <id> in <worktree>; the author is <YourDisplayName>.`
+   then `codex exec -C <worktree> --dangerously-bypass-approvals-and-sandbox - < /tmp/review-<bead-id>.md`
+   Check it came up: `zm -as <role> wait -t <topic> -timeout 5m` must return the reviewer's `reviewing …` line. Nothing → read the background task's output, fix the launch once; still nothing → take 4b and say so in the topic.
+4. `zm -as <role> wait -t <topic> -timeout 30m` for the findings. Triage exactly as below, fix and commit, push, then reply in the topic: what you fixed (commit), what you rejected and why. Wait again for the reviewer's answer. Cap at two rounds.
+5. When the `VERDICT:` line arrives, or after two rounds, stop the reviewer's background task if it's still running. Timeout with no findings → stop it, take 4b, and say so in the topic.
+
+Report line: `Review: zulip — <n> findings, <m> fixed`.
 
 ### 4a — peer review with the Codex pane (direct invocation in agterm only)
 
@@ -171,7 +186,7 @@ Red → diagnose (`gh run view <run> --log-failed`), fix with a targeted commit,
 
 ## Step 7 — hand off (you never merge)
 
-Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, outstanding review findings (codex or revmux) with the round they came from, and one line `Review: <peer|codex|revmux> — <n> findings, <m> fixed` (no review ran → `Review: none — <why>`). To an orchestrator caller, return the one-line form its prompt asks for (`READY #<pr> <branch> <worktree> findings=<n>`) as the first line, then that report (≤40 lines) in the same final message; it checks the work and merges. Don't write report files: sandboxed subagents are often refused writes outside their worktree (e.g. `/private/tmp`), and a file inside it blocks the worktree's removal. **Never put the report in a PR comment or the PR body: repos may be public.** PR text is for reviewers — what changed and why; no local paths, hostnames, account names, emails, tokens or env details. To the owner directly, that's the handoff — they (or their orchestrator) merge.
+Mark the PR ready (`gh pr ready <pr>`) and report: PR number, bead id, what shipped, what was deferred, CI state, outstanding review findings (codex or revmux) with the round they came from, and one line `Review: <zulip|peer|codex|revmux> — <n> findings, <m> fixed` (no review ran → `Review: none — <why>`). To an orchestrator caller, return the one-line form its prompt asks for (`READY #<pr> <branch> <worktree> findings=<n>`) as the first line, then that report (≤40 lines) in the same final message; it checks the work and merges. Don't write report files: sandboxed subagents are often refused writes outside their worktree (e.g. `/private/tmp`), and a file inside it blocks the worktree's removal. **Never put the report in a PR comment or the PR body: repos may be public.** PR text is for reviewers — what changed and why; no local paths, hostnames, account names, emails, tokens or env details. To the owner directly, that's the handoff — they (or their orchestrator) merge.
 
 **Do not merge, even a trivial fix** — checking and merging is the supervisor's independent gate, and self-merging is exactly what bypasses it. Do not close the bead either: it closes on merge, by whoever merged. If you delivered directly for the owner and they say "merged", then close it yourself, Dolt-synced:
 

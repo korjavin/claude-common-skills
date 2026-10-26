@@ -33,6 +33,7 @@ You are the **Delivery Supervisor** and the owner's primary interface. The owner
 - **revmux:** pinned profile printed → use it. None pinned and no flag → read `references/revmux.md` (without `.revmux/`, only once a huge bead is in scope).
 - **parked:** beads the owner has since answered (their invocation message, notes) → un-park per `references/failures.md`.
 - **orphan?:** in_progress beads held by other actors — a dead session's work. With a PR → adopt it at Step 5. Without → leave it, name it in the final report.
+- **Peer tracks:** the project keeps parity between tracks (its CLAUDE.md says so) → `bd list --label for:<my-track> --status open` and answer or convert each note before claiming; `ListAgents` → a live peer orchestrator gets a `SendMessage` with your scope and files. An offline peer gets a `for:<its-track>` bead instead.
 - Start the **status board** (below).
 
 ## Step 0 — Plan what isn't planned
@@ -68,6 +69,8 @@ Launch tracks into free slots, up to `N`. `UNDERSPEC` → Step 0.
 A bead that names several screens or components ("N3–N6", "X + Y") breaks the architect's Size rule — have the architect split it before spawning (curator 2026-10-20: such beads ran 136–232 calls and all compacted, ~10× a one-screen bead).
 
 Spawn the developer: `Agent`, `isolation: "worktree"`, `run_in_background: true`, `model: "opus"` (owner directive: coding is opus-class; `"sonnet"` for small/trivial beads). Worktrees are cut from `origin/master` (default `worktree.baseRef: fresh`); a branch carrying `chore: bd claim` commits must be recreated from `origin/master`.
+
+**Zulip role.** If you were given a Zulip role (zulip-agents skill: role, reviewer role), add to the developer prompt: `Zulip: post as <your-role>, reviewer <reviewer-role> — take develop route 4z (public review); mention the owner only for a decision.` The review then runs in the open in topic `<title ≤20> <bead-id>`, a fresh reviewer per bead.
 
 ```markdown
 You are a developer agent. Invoke the develop skill for bd issue `<id>` (bundle: <ids>) and follow
@@ -138,7 +141,9 @@ component the tests rely on (proxy, IdP, shared router) cites the real component
 boundaries (proxy headers, shared networks, allowlists), crypto, secrets, stored-data shape, wire formats
 or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`; (9) device — the diff changes a native
 shell or rendered UI and the project's CLAUDE.md names a device/visual check → that run is green on the
-PR head and you looked at its screenshots; none ran → `RISKY #<pr> device-unverified`.
+PR head and you looked at its screenshots; none ran → `RISKY #<pr> device-unverified`; (10) parity —
+the project's CLAUDE.md keeps parity between tracks (e.g. iOS/Android) and the diff touches one track's
+shell, but the bead has neither a twin bead nor the prescribed n/a label → `GAP #<pr> no parity twin`.
 Pane developer: <yes|no>. If yes, also: `git worktree add /private/tmp/verify-<id> <head-sha>`,
 there `git branch -f review-base origin/master && codex exec review --dangerously-bypass-hook-trust --base review-base` (or one revmux
 round on profile <revmux-profile> when .revmux/ exists), triage the findings, and mutate one or two
