@@ -14,8 +14,9 @@ You are the **developer**. You get **one bead** (or one epic bead) and deliver e
 ## Preflight
 
 ```bash
-which gh && which bd && which codex && gh auth status   # stop and report if any missing
-which revmux                                             # only if the bead is huge (Step 2b)
+which gh && which bd && gh auth status   # stop and report if any missing
+which codex                              # optional: absent (a Claude-only host) → the "no codex" lines in Step 4
+which revmux                             # only if the bead is huge (Step 2b)
 ```
 
 ## Subagent contract (when spawned by an orchestrator)
@@ -124,6 +125,7 @@ When your invocation or orchestrator gave you a Zulip **role** and **reviewer ro
 3. **You start the reviewer; nobody else will** — there is no resident reviewer, a request alone gets no answer. One **fresh** reviewer per review, in the background (Bash `run_in_background`), no sandbox (it needs network). Write the prompt to a file and pass it on stdin — the inline `codex exec "<prompt>"` form gets refused by the worktree guard:
    `/tmp/review-<bead-id>.md`: `Read the role-<reviewer-role> skill (no such skill → the zulip-agents skill's Reviewer steps, as <reviewer-role>). Topic <topic>. Review git diff origin/master...HEAD of bd <id> in <worktree>; the author is <YourDisplayName>.`
    then `codex exec -C <worktree> --dangerously-bypass-approvals-and-sandbox - < /tmp/review-<bead-id>.md`
+   (no codex → `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`: the worktree path is in the prompt, so the reviewer reads it with `git -C`)
    Check it came up: `zm -as <role> wait -t <topic> -timeout 5m` must return the reviewer's `reviewing …` line. Nothing → read the background task's output, fix the launch once; still nothing → take 4b and say so in the topic.
 4. `zm -as <role> wait -t <topic> -timeout 30m` for the findings. Triage exactly as below, fix and commit, push, then reply in the topic: what you fixed (commit), what you rejected and why. Wait again for the reviewer's answer. Cap at two rounds.
 5. When the `VERDICT:` line arrives, or after two rounds, stop the reviewer's background task if it's still running. Timeout with no findings → stop it, take 4b, and say so in the topic.
@@ -154,6 +156,8 @@ Run it **from the branch's worktree**, not the main checkout (in a repo with `.r
 git -C <worktree> branch -f review-base origin/master
 codex exec -C <worktree> review --dangerously-bypass-hook-trust --base review-base
 ```
+
+No codex → one fresh Claude reviewer on another model than yours instead, with the 4a request text (worktree, branch, base) written to `/tmp/review-<bead-id>.md`: `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`.
 
 (`review-base` pins the diff to the *remote* base — a plain `--base master` compares against your local `master` ref, which lags origin, so already-merged upstream commits show up as findings you'd then be forced to fix inside this bead's PR. The `exec review` form with `--dangerously-bypass-hook-trust` is what makes the repo's `.codex/hooks.json` guards fire — see Gotchas.)
 
