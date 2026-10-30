@@ -108,7 +108,7 @@ Keep `.revmux-dev/` and `.revmux/tasks/` out of the commits (add to `.git/info/e
 
 - Fresh base: `git fetch origin` — then confirm against the **ref**, not the tree: `git grep <expected-pattern> origin/master -- <path>` or `git show origin/master:<path>`. A fetch alone moves no file in your worktree, so grepping the tree after it still shows the stale state. If your branch is behind, merge `origin/master` into it before building on it.
 - Be lazy-correct: smallest coherent diff, reuse existing machinery, no speculative refactors — but never skip guards, tests, or hard invariants.
-- Verify locally: the relevant `go build ./...` + `go test ./...` (or the project's equivalents). **NEVER run frontend tests locally** (`pnpm test` / vitest) — owner directive, 2026-07-30; sandbox Node silently skips and reports a green lie. CI on the PR is the only frontend gate. `pnpm tsc --noEmit` is fine as a fast local signal.
+- Verify locally: the relevant `go build ./...` + `go test ./...` (or the project's equivalents). Frontend tests: run only the test files you touched (`pnpm test <path>.test.js`), never the full suite — CI on the PR is the full gate. `pnpm tsc --noEmit` is fine as a fast local signal.
 - Test doubles mirror production: fake an external API with a captured real response, check UI changes at a short viewport (≤700px) too, and feed parsers one long real sample.
 - Commit on the branch with descriptive messages. Flag deferrals honestly — never hide them.
 
@@ -125,10 +125,11 @@ When your invocation or orchestrator gave you a Zulip **role** and **reviewer ro
 3. **You start the reviewer; nobody else will** — there is no resident reviewer, a request alone gets no answer. One **fresh** reviewer per review, in the background (Bash `run_in_background`), no sandbox (it needs network). Write the prompt to a file and pass it on stdin — the inline `codex exec "<prompt>"` form gets refused by the worktree guard:
    `/tmp/review-<bead-id>.md`: `Read the role-<reviewer-role> skill (no such skill → the zulip-agents skill's Reviewer steps, as <reviewer-role>). Topic <topic>. Review git diff origin/master...HEAD of bd <id> in <worktree>; the author is <YourDisplayName>.`
    then `codex exec -C <worktree> --dangerously-bypass-approvals-and-sandbox - < /tmp/review-<bead-id>.md`
-   (no codex → `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`: the worktree path is in the prompt, so the reviewer reads it with `git -C`)
+   (no codex, or codex at its usage limit → `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`: the worktree path is in the prompt, so the reviewer reads it with `git -C`; say in the topic that the reviewer is Claude)
    Check it came up: `zm -as <role> wait -t <topic> -timeout 5m` must return the reviewer's `reviewing …` line. Nothing → read the background task's output, fix the launch once; still nothing → take 4b and say so in the topic.
 4. `zm -as <role> wait -t <topic> -timeout 30m` for the findings. Triage exactly as below, fix and commit, push, then reply in the topic: what you fixed (commit), what you rejected and why. Wait again for the reviewer's answer. Cap at two rounds.
 5. When the `VERDICT:` line arrives, or after two rounds, stop the reviewer's background task if it's still running. Timeout with no findings → stop it, take 4b, and say so in the topic.
+   A non-test commit after the verdict needs a fresh reviewer (step 3, full diff, the prompt names the new commits). Never mention a reviewer that has exited: nobody reads it.
 
 Report line: `Review: zulip — <n> findings, <m> fixed`.
 

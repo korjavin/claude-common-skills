@@ -76,8 +76,8 @@ Spawn the developer: `Agent`, `isolation: "worktree"`, `run_in_background: true`
 You are a developer agent. Invoke the develop skill for bd issue `<id>` (bundle: <ids>) and follow
 it in subagent mode. The bead is ALREADY CLAIMED — skip only develop's claim commands; read the bead
 (`bd show`), CLAUDE.md and the code yourself. Delivery agent: <agent>; revmux profile:
-<revmux-profile> — use these, do not re-resolve. NEVER run frontend tests locally — CI is the
-frontend gate. Edit files only with Edit/Write — never python/sed/heredocs; one plain command per
+<revmux-profile> — use these, do not re-resolve. Frontend tests: only the test files you touched, never
+the full suite — CI is the full gate. Edit files only with Edit/Write — never python/sed/heredocs; one plain command per
 Bash call from your worktree root (no `cd`, `&&`, `;`, `$(…)`, loops) — the worktree guard refuses
 the rest. Read code with Read/Grep and send independent reads together as parallel calls in one
 message — every separate turn re-bills your whole context. Open a draft PR with --body-file, drive CI green, mark it ready. Do NOT merge or
