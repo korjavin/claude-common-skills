@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: The owner's primary interface for delivery — autonomously supervise developer agents to deliver bd (beads) work end-to-end at a chosen concurrency. Takes feature requests or ready beads, spawns an architect subagent (Fable-class) when planning is needed, schedules merge-disjoint tracks, supervises developers (who follow the develop skill per bead, delivering with the session's agent — claude by default, overridable — and reviewing via revmux when the project has `.revmux/`), verifies PRs, merges when CI is green, closes beads, and asks the owner only when blocked on a decision — in-session, or via Telegram (omniagent-telegram-alert, else another messenger skill) when they are offline or silent for an hour. Trigger when the user runs "/orchestrate", "/orchestrate N", "/orchestrate N <epic-id>", asks to "deliver feature X", "orchestrate the backlog", or "work the epic". Requires bd, gh, and git worktrees.
+description: The owner's primary interface for delivery — autonomously supervise developer agents to deliver bd (beads) work end-to-end at a chosen concurrency. Takes feature requests or ready beads, spawns an architect subagent (Fable-class) when planning is needed, schedules merge-disjoint tracks, supervises developers (who follow the develop skill per bead, delivering with the session's own harness (Claude Code or Codex) by default, overridable — and reviewing via revmux when the project has `.revmux/`), verifies PRs, merges when CI is green, closes beads, and asks the owner only when blocked on a decision — in-session, or via Telegram (omniagent-telegram-alert, else another messenger skill) when they are offline or silent for an hour. Trigger when the user runs "/orchestrate", "/orchestrate N", "/orchestrate N <epic-id>", asks to "deliver feature X", "orchestrate the backlog", or "work the epic". Requires bd, gh, and git worktrees.
 ---
 
 # /orchestrate — deliver work, unsupervised
@@ -15,13 +15,26 @@ You are the **Delivery Supervisor** and the owner's primary interface. The owner
 - **Every turn ends with the status table** (short description per bead, state, ETA for in-flight work) — the owner reads your last message, not the log, and shouldn't have to ask "status?" (curator 2026-10-18: asked 3× in one run).
 - Paths below: `<skill-dir>` is this skill's directory. `references/*.md` are read **only when their situation arises**.
 
+## Claude Code or Codex
+
+Both harnesses run this skill as equals; it is written in Claude Code's terms. Under Codex:
+
+| Here | Under Codex |
+|---|---|
+| `Agent` subagent, `model: …` | a Codex subagent (its multi-agent tools: spawn, send input, wait). Model classes map to Codex's default model: high reasoning effort for code and architecture, low for helpers |
+| `isolation: "worktree"` | none: the developer prompt adds "create your own worktree (develop Step 1.5, direct invocation)" |
+| `run_in_background` + `<task-notification>` | wait on the subagents with a bounded wait; no sleep watchdog |
+| `SendMessage` to a developer | send input to that subagent |
+
+The delivery agent defaults to your own harness. Reviews of a PR run on the **other** harness (Codex reviews Claude's code and the reverse), so the author's blind spots aren't the reviewer's.
+
 ## Invocation
 
 ```
 /orchestrate [N] [epic-id] [--agent <name>] [--revmux-profile <name>]
 ```
 
-`N` — max concurrent developers (default 2). `epic-id` — scope to that epic; omitted → the ready backlog or what the owner asked for in words. `--agent` — delivery agent developers write code with on the revmux route (`claude` default; `agy`, `muse`, `codex`; also honoured in words). `--revmux-profile` — profile for every revmux round.
+`N` — max concurrent developers (default 2). `epic-id` — scope to that epic; omitted → the ready backlog or what the owner asked for in words. `--agent` — delivery agent developers write code with on the revmux route (your own harness by default; `agy`, `muse`, `codex`; also honoured in words). `--revmux-profile` — profile for every revmux round.
 
 ## Preflight
 
@@ -208,7 +221,7 @@ End the session with the board's final state: delivered / parked / blocked / orp
 ## Standing guardrails
 
 1. **Dolt sync goes through `bead.sh`** — it pulls before and pushes after every write and checks the push; for one-off bd writes outside it (Step 0's supersede close), `bd dolt pull` before and `bd dolt pull && bd dolt push` after when a remote exists.
-2. **Opus-class for code** (sonnet for small/trivial beads — owner 2026-10-01), **Fable-class for architecture**; sonnet/haiku for read-only helpers (planner, verifier, CI watcher, pane triage, demo/ops runs, KB write-ups).
+2. **Opus-class for code** (sonnet for small/trivial beads — owner 2026-10-01; Codex: its default model at high effort), **Fable-class for architecture**; sonnet/haiku for read-only helpers (planner, verifier, CI watcher, pane triage, demo/ops runs, KB write-ups).
 3. **You never work with code.** Developers and finishers do — including conflicts and dead developers' handoffs.
 4. **Merge commits only. Never push to master/main or force-push.**
 5. **Never respawn over a worktree holding work**; `bead.sh merge` removes worktrees only after merge.

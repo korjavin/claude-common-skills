@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → the revmux loop; small/medium → implement on an opus-class model; trivial → direct fix), review the branch (peer-chat with the Codex pane when one runs in this agterm session, else `codex review`), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex; revmux for huge tasks. The delivery agent defaults to claude and can be overridden (`--agent agy|muse|codex`).
+description: Deliver exactly one bd (beads) issue end-to-end as a focused developer — claim it with Dolt sync, route by size (huge → the revmux loop; small/medium → implement on an opus-class model; trivial → direct fix), review the branch on the other harness (peer-chat with the Codex pane when one runs in this agterm session, else `codex review`, or a Claude reviewer when Codex wrote the code), open a PR, drive CI green, and hand off for merge. Trigger when the user runs "/develop <bead-id>", says "develop this bead", "deliver <id>", or when an orchestrator spawns a developer agent for one bead. Requires bd, gh, and codex or claude for the review; revmux for huge tasks. Runs under Claude Code or Codex alike; the delivery agent defaults to the harness you run on and can be overridden (`--agent claude|codex|agy|muse`).
 ---
 
 # /develop — deliver one bead
@@ -15,7 +15,7 @@ You are the **developer**. You get **one bead** (or one epic bead) and deliver e
 
 ```bash
 which gh && which bd && gh auth status   # stop and report if any missing
-which codex                              # optional: absent (a Claude-only host) → the "no codex" lines in Step 4
+which codex claude                       # the review runs on the harness you are not: Claude author → codex, Codex author → claude
 which revmux                             # only if the bead is huge (Step 2b)
 ```
 
@@ -47,6 +47,7 @@ Read the bead fully: `bd show <id>`. Read `CLAUDE.md` / `AGENTS.md`. Read the co
 All implementation, review, and push steps below run in a branch's worktree, named `<worktree>` throughout.
 
 - **Spawned with `isolation: "worktree"`** (the orchestrator path): you are already in one — that is `<worktree>`; create your branch here and do NOT create another.
+- **Spawned as a Codex subagent** (no worktree isolation there): create it as below.
 - **Direct invocation**: create it — `git worktree add ../<repo>-<id> -b <id>-<slug> origin/master` — and work there. Every route gets one, the trivial fix included.
 
 **From here on, one plain command per Bash call** — the worktree guard refuses anything it cannot statically read as "too complex to verify": `cd`, `&&`/`;` chains, heredocs, `$(…)`, `eval`, shell loops, `node -e`/`python -c` with variables. Use `git -C <worktree>`, `go -C <worktree>/backend test ./...`, `codex exec -C <worktree>`, and Edit/Write for files; a multi-step check is a script file you Write, then run with one `node <file>` / `python3 <file>`.
@@ -54,7 +55,7 @@ All implementation, review, and push steps below run in a branch's worktree, nam
 ## Step 2 — route by size
 
 - **Huge** (an epic bead, a multi-day feature, a change spanning many subsystems): take **Step 2b** (the revmux loop).
-- **Small/medium** (a real feature or multi-file change that fits one focused pass): **implement it yourself** on an opus-class model, in `<worktree>`. If your session is not on an opus-class model, delegate the coding to one `Agent` subagent (`isolation: "worktree"`, `model: "opus"`) whose prompt carries the spec **plus the implementation contract: create a branch, implement, verify locally per Step 3, COMMIT the work, and report back branch name + worktree path**. When it reports, **its worktree and branch become `<worktree>`/`<branch>` for every step below**; do not review or push the one you made, and confirm its branch actually has commits before proceeding. Either way it is one unit of work, not a fleet.
+- **Small/medium** (a real feature or multi-file change that fits one focused pass): **implement it yourself** on a strong coding model (Claude: opus-class; Codex: its default model at high effort), in `<worktree>`. If your session is not on one, delegate the coding to one subagent (Claude: `Agent`, `isolation: "worktree"`, `model: "opus"`; Codex: a subagent that creates its own worktree) whose prompt carries the spec **plus the implementation contract: create a branch, implement, verify locally per Step 3, COMMIT the work, and report back branch name + worktree path**. When it reports, **its worktree and branch become `<worktree>`/`<branch>` for every step below**; do not review or push the one you made, and confirm its branch actually has commits before proceeding. Either way it is one unit of work, not a fleet.
 - **Trivial** (one-touch fix that fits in your head): fix it in `<worktree>`, run the relevant test/build, **commit it**, then go to Step 4.
 
 ## Step 2b — the revmux loop (huge beads)
@@ -63,7 +64,7 @@ Huge beads are delivered in a review loop (a checked-in `.revmux/` adds the proj
 
 **Resolve `<agent>` and `<revmux-profile>` before writing any code** — a question here costs nothing, a question after implementing wastes the work.
 
-- `<agent>` — who writes the code. `claude` (you, or your opus subagent per the small/medium rule) unless the operator overrode it: `--agent agy|muse|codex|…` on the invocation, or the orchestrator's prompt. The same agent does every fix pass.
+- `<agent>` — who writes the code. Your own harness (you, or your subagent per the small/medium rule) unless the operator overrode it: `--agent claude|codex|agy|muse|…` on the invocation, or the orchestrator's prompt. The same agent does every fix pass.
 - `<revmux-profile>` — the `--profile` name for every round. In order: the operator named one (`--revmux-profile`, or "review with focused"), the project pins it (`revmux config` → the `profile` knob with a non-`default` `source` — that is `./.revmux/config`), or `CLAUDE.md`/`.revmux/profile.md` says which. **Anything else is not clear enough to guess.** Direct invocation → `AskUserQuestion` with the names from `revmux config`, `preflight.sh`-runnable ones first, `comprehensive` marked recommended. Subagent → return `NEED-PROFILE: <bead-id> — candidates: <names>` and touch no bd state; the orchestrator picks and re-spawns you.
 
 ```bash
@@ -74,7 +75,7 @@ ${REVMUX_SKILL}/scripts/preflight.sh <revmux-profile>   # ok: false → report, 
 
 **1. Deliver.** Author the plan from the bead's spec into `docs/plans/` (an epic bead's children become its tasks; the bead spec carries the decisions — anything undecided is BLOCKED, not a guess). Then, in `<worktree>`:
 
-- `claude`: implement it yourself per Step 3, one plan task at a time, committing per task.
+- your own harness: implement it yourself per Step 3, one plan task at a time, committing per task.
 - anything else: run it headless with the plan path plus the implementation contract (implement every task in the plan, verify per Step 3, commit per task, never push). Detach it from the harness — never `run_in_background` (the harness reaps background tasks after 1h), and foreground is capped at 10 min:
 
 ```bash
@@ -85,6 +86,7 @@ for i in $(seq 1 50); do test -f .revmux-dev/exit && break; sleep 10; done; cat 
 
 | agent | `<agent-cmd>` |
 |---|---|
+| claude | `claude -p --dangerously-skip-permissions < .revmux-dev/prompt.md` |
 | agy | `agy -p --dangerously-skip-permissions --print-timeout 60m "$(cat .revmux-dev/prompt.md)"` |
 | muse | `muse exec --prompt-file .revmux-dev/prompt.md` |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox "$(cat .revmux-dev/prompt.md)"` |
@@ -149,16 +151,16 @@ Then **end your turn**. Never poll or watch for the reply — it arrives as a `C
 
 **Not in a subagent.** An orchestrator-spawned developer cannot receive the `Chat from Codex:` prompt (it lands in the top-level session), so it always takes 4b — don't send from a subagent even if the pane is there.
 
-### 4b — `codex review` (fallback, and always the subagent route)
+### 4b — review on the other harness (fallback, and always the subagent route)
 
-Run it **from the branch's worktree**, not the main checkout (in a repo with `.revmux/`, one revmux round on the project profile is an equivalent alternative):
+**Claude wrote the code** → `codex review`, run **from the branch's worktree**, not the main checkout (in a repo with `.revmux/`, one revmux round on the project profile is an equivalent alternative):
 
 ```bash
 git -C <worktree> branch -f review-base origin/master
 codex exec -C <worktree> review --dangerously-bypass-hook-trust --base review-base
 ```
 
-No codex → one fresh Claude reviewer on another model than yours instead, with the 4a request text (worktree, branch, base) written to `/tmp/review-<bead-id>.md`: `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`.
+**Codex wrote the code** (or no codex on this host) → one fresh Claude reviewer, with the 4a request text (worktree, branch, base) written to `/tmp/review-<bead-id>.md`: `claude -p --model claude-fable-5-1 --dangerously-skip-permissions < /tmp/review-<bead-id>.md`. Neither other harness available → a fresh run of your own on another model, and say so in the handoff.
 
 (`review-base` pins the diff to the *remote* base — a plain `--base master` compares against your local `master` ref, which lags origin, so already-merged upstream commits show up as findings you'd then be forced to fix inside this bead's PR. The `exec review` form with `--dangerously-bypass-hook-trust` is what makes the repo's `.codex/hooks.json` guards fire — see Gotchas.)
 
