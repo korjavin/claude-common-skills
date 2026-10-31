@@ -123,7 +123,7 @@ Every branch gets an independent review before it becomes a PR (revmux-loop-deli
 When your invocation or orchestrator gave you a Zulip **role** and **reviewer role** (e.g. "post as webb, reviewer argus"), the review happens in the open so the owner can read it, in the **work channel**: `zm` routes there by itself (`zm -as <role> where` shows it); never pass `-c`. Follow the **zulip-agents** skill; `zm` is on PATH. No role given → take 4a/4b.
 
 1. Topic: `<bead title cut to 20 chars> <bead-id>` (reuse it if it exists). Push the branch first so the reviewer can see it: `git -C <worktree> push -u origin <branch>`.
-2. Request, mentioning the reviewer only (`-to <Reviewer>`; never the owner — they read public reviews when they want, and get mentioned only for a decision): bead id, branch, base `origin/master`, one line on what changed and what to focus on.
+2. Request only on a frozen head: CI green, and the gates that may still change the code done first — the project's compatibility review if its CLAUDE.md asks for one for this kind of change, the designer's visual pass for UI. Request, mentioning the reviewer only (`-to <Reviewer>`; never the owner — they read public reviews when they want, and get mentioned only for a decision): bead id, branch, base `origin/master`, one line on what changed and what to focus on.
 3. **You start the reviewer; nobody else will** — there is no resident reviewer, a request alone gets no answer. One **fresh** reviewer per review, in the background (Bash `run_in_background`), no sandbox (it needs network). Write the prompt to a file and pass it on stdin — the inline `codex exec "<prompt>"` form gets refused by the worktree guard:
    `/tmp/review-<bead-id>.md`: `Read the role-<reviewer-role> skill (no such skill → the zulip-agents skill's Reviewer steps, as <reviewer-role>). Topic <topic>. Review git diff origin/master...HEAD of bd <id> in <worktree>; the author is <YourDisplayName>.`
    then `codex exec -C <worktree> --dangerously-bypass-approvals-and-sandbox - < /tmp/review-<bead-id>.md`
@@ -131,7 +131,7 @@ When your invocation or orchestrator gave you a Zulip **role** and **reviewer ro
    Check it came up: `zm -as <role> wait -t <topic> -timeout 5m` must return the reviewer's `reviewing …` line. Nothing → read the background task's output, fix the launch once; still nothing → take 4b and say so in the topic.
 4. `zm -as <role> wait -t <topic> -timeout 30m` for the findings. Triage exactly as below, fix and commit, push, then reply in the topic: what you fixed (commit), what you rejected and why. Wait again for the reviewer's answer. Cap at two rounds.
 5. When the `VERDICT:` line arrives, or after two rounds, stop the reviewer's background task if it's still running. Timeout with no findings → stop it, take 4b, and say so in the topic.
-   A non-test commit after the verdict needs a fresh reviewer (step 3, full diff, the prompt names the new commits). Never mention a reviewer that has exited: nobody reads it.
+   After an approve, a docs-, test- or lint-only commit needs no new review: name its SHAs in the report. Any other commit needs a fresh reviewer on the delta (step 3, the prompt names the SHA range). The designer re-signs only if UI files changed since their approved head. Never mention a reviewer that has exited: nobody reads it.
 
 Report line: `Review: zulip — <n> findings, <m> fixed`.
 
