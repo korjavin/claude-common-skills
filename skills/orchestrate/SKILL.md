@@ -151,8 +151,8 @@ as checked → `SCOPE #<pr> deploy-compat: <what prod must have>`; (6) the repor
 a route that ran — missing or `none` → `GAP #<pr> no review`; (7) every fake or stub of an external
 component the tests rely on (proxy, IdP, shared router) cites the real component's contract it mirrors
 (header names, redirects) — a fake with no source → `GAP`; (8) risk — the diff touches auth, trust
-boundaries (proxy headers, shared networks, allowlists), crypto, secrets, stored-data shape, wire formats
-or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`; (9) device — the diff changes a native
+boundaries (proxy headers, shared networks, allowlists), crypto, secrets, or — once a deployed instance holds data — stored-data
+shape, wire formats or deletions → return `RISKY #<pr> <area>` instead of `MERGE-OK`; (9) device — the diff changes a native
 shell or rendered UI and the project's CLAUDE.md names a device/visual check → that run is green on the
 PR head and you looked at its screenshots; none ran → `RISKY #<pr> device-unverified`; (10) parity —
 the project's CLAUDE.md keeps parity between tracks (e.g. iOS/Android) and the diff touches one track's
