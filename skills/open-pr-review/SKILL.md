@@ -1,13 +1,13 @@
 ---
 name: open-pr-review
-description: Review open pull requests (especially those authored by coding agents like Jules) — merge clean ones, leave concrete review comments on flawed ones, close obsolete or repeatedly-unfixable ones. Use when the user says things like "review open PRs", "handle open PRs", "review the Jules PRs", "check open PRs on github", or asks to triage a review backlog. The skill encodes workflow for spotting scope mismatches, stale-base issues, obsolete features, and how to give agents 2-3 rounds of iteration before closing.
+description: Review open pull requests (especially those authored by coding agents) — merge clean ones, leave concrete review comments on flawed ones, close obsolete or repeatedly-unfixable ones. Use when the user says things like "review open PRs", "handle open PRs", "check open PRs on github", or asks to triage a review backlog. The skill encodes workflow for spotting scope mismatches, stale-base issues, obsolete features, and how to give agents 2-3 rounds of iteration before closing.
 ---
 
 # Open PR Review
 
 This skill reviews open PRs on GitHub and takes action: **merge**, **comment with specific fixes**, or **close** (only after multiple rounds).
 
-It is tuned for PRs authored by coding agents (Jules in particular, but also Antigravity, Claude Code, Cursor, etc.) where scope-mismatch, stale-base duplication of already-merged work, and shallow task completion are common failure modes.
+It is tuned for PRs authored by coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) where scope-mismatch, stale-base duplication of already-merged work, and shallow task completion are common failure modes.
 
 ## Core workflow
 
@@ -44,7 +44,7 @@ git grep -l "SpO2\|spo2" -- internal/ web/
 
 If the feature is already implemented independently, close with a link to the merged commit(s).
 
-**b. Does the diff match the description?** Scope mismatch is the most common Jules failure mode. Compare:
+**b. Does the diff match the description?** Scope mismatch is the most common agent failure mode. Compare:
 - The PR body's claim of what was done
 - The actual `files` list and `additions`/`deletions` counts
 - The real `gh pr diff` contents
@@ -111,7 +111,7 @@ gh pr close <N> --comment "..."
 
 **Give 2-3 rounds before closing.** Agents can iterate — closing on the first failed attempt wastes their earlier work and forces a full restart. Only close-on-first-try if the PR is categorically obsolete.
 
-**Do not ask agents to rebase.** Jules and most coding agents cannot rebase a branch. If a PR conflicts with master:
+**Do not ask agents to rebase.** Most coding agents cannot rebase a branch. If a PR conflicts with master:
 - Ask the agent to make a specific code change (e.g., "revert this one line in `foo.go`") rather than "rebase onto master."
 - Or resolve the conflict yourself locally and push.
 - Or tell the user their merge button would work fine.

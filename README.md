@@ -47,7 +47,6 @@ Claude Skills are modular extensions that enhance Claude Code's capabilities. Th
 | [compose-service-setup](./skills/compose-service-setup/) | Git-ops compose project for a 3rd-party service, optional GHCR image vendoring |
 | [litestream-backup](./skills/litestream-backup/) | SQLite replication to S3/R2/MinIO with Litestream |
 | [prod-debug](./skills/prod-debug/) | Debugs production over SSH: logs, env, behavior |
-| [setup-dev-host](./skills/setup-dev-host/) | Bootstraps a new dev host: core tools, dotfiles, these skills |
 
 ### Web and app development
 
