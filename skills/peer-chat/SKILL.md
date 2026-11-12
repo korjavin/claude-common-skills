@@ -45,3 +45,7 @@ If the script refuses, read the error and stop; do not work around it.
 ## Manners
 
 Plain language, short sentences. Quote what the peer actually said before answering it. Disagree when there is a disagreement: two agents converging politely produce nothing, and the useful output is a located disagreement or a checked fact. Verify a claim the peer makes about the code with your own tools before repeating it to the user.
+
+## Turning it off
+
+Peer chat is opt-in: until the first `say` (or `peer-chat.py on`), hooks only record which agent runs where and start no listeners. When the user says to stop peer chat, run `peer-chat.py off`.

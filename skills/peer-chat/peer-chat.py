@@ -37,6 +37,20 @@ BODY_LIMIT = 64 * 1024
 LABEL = "[peer chat]"
 REPLY_LINE = "If you answer, use: peer-chat.py say --to {addr} (message on stdin or --file); do not reply only to acknowledge."
 AGENTS = ("claude", "codex", "agy")
+# opt-in switch: while it is absent, hooks only record which agent runs in a pane and start no waiters
+ENABLED_FLAG = os.path.join(os.path.expanduser("~"), ".cache", "peer-chat", "enabled")
+
+
+def enabled() -> bool:
+    return os.path.exists(ENABLED_FLAG)
+
+
+def set_enabled(on: bool) -> None:
+    if on:
+        os.makedirs(os.path.dirname(ENABLED_FLAG), exist_ok=True)
+        open(ENABLED_FLAG, "a").close()
+    else:
+        remove(ENABLED_FLAG)
 WAIT_ROUND_SECONDS = 30
 WAKE = 2
 # codex global options that take a value, skipped to find its subcommand
@@ -260,7 +274,7 @@ class Waiter:
             # auto-compaction fires SessionStart in the middle of a turn
             if not (event == "SessionStart" and source == "compact"):
                 remove(self.busy_path)
-            return self.serve()
+            return self.serve() if enabled() else 0
         except Exception as e:  # noqa: BLE001 - any failure must exit 0, never wake Claude
             self.log(f"error: {e}")
             return 0
@@ -297,7 +311,7 @@ class Waiter:
                 time.sleep(self.LOCK_POLL_SECONDS)
 
     def loop(self) -> int:
-        while os.getppid() == self.parent:
+        while os.getppid() == self.parent and enabled():
             messages = self.peek()
             # the wait can outlive the Claude Code that started it; mail taken then reaches nobody
             if not messages or os.getppid() != self.parent:
@@ -428,6 +442,7 @@ def own_agent() -> str:
 
 def say(text: str, to: str) -> dict[str, Any]:
     sid, pane = own_identity()
+    set_enabled(True)
     psid, peer = resolve_peer(to, sid, pane)
     message = compose(text, own_agent(), f"{sid}:{pane}")
     # delivery to codex is the agterm event hook's job: codex queue fails inside a codex tool sandbox
@@ -436,6 +451,9 @@ def say(text: str, to: str) -> dict[str, Any]:
                               "receiver": receiver(psid, peer)}
     if result["receiver"] == "claude":
         result["peerBusy"] = Waiter(psid, peer).busy()
+        if not pid_alive((read_json(state_path(f"claude-{peer}.waiter")) or {}).get("pid")):
+            result["note"] = ("that Claude Code is not listening yet (peer chat was off when its last turn ended); "
+                              "the mail waits and wakes it after its next turn, or the user can send it any prompt")
     if result["receiver"] == "agy-idle":
         result["note"] = ("agy is not listening; the mail waits in its mailbox until the user tells agy to "
                           "listen for peer chat")
@@ -452,6 +470,7 @@ def status() -> dict[str, Any]:
 def wait_mail() -> int:
     """agy's receiver, run as a background task: exit with this pane's mail printed, acked."""
     sid, pane = own_identity()
+    set_enabled(True)
     write_json(state_path(f"agy-{pane}.json"), {"session": sid, "pid": find_pid(os.getppid(), "agy") or os.getppid()})
     with open(state_path(f"agy-{pane}.lock"), "a") as lock:
         try:
@@ -582,6 +601,8 @@ def codex_hook() -> int:
         if pid is None or is_codex_exec(pid) or is_codex_daemon(pid):
             return 0
         Courier(sid, pane).register(str(thread), pid, executable_path(pid))
+        if not enabled():
+            return 0
         # detached, so codex's startup never waits on queue calls into its own thread
         with open(state_path(f"codex-{pane}.log"), "a") as log:
             subprocess.Popen([sys.executable, os.path.abspath(__file__), "deliver"], stdin=subprocess.DEVNULL,
@@ -608,6 +629,8 @@ def agy_hook() -> int:
 
 def agterm_hook() -> int:
     """the agterm `on message` hook: hand new mail for a registered codex pane to its thread."""
+    if not enabled():
+        return 0
     event = hook_event()
     payload = event.get("payload")
     sid = str(event.get("session") or "")
@@ -641,6 +664,8 @@ def main(argv: list[str] | None = None) -> int:
     say_input.add_argument("--file", metavar="PATH", help="read the message from a file, which is kept")
     sub.add_parser("status", help="this pane and the registered peers in this workspace")
     sub.add_parser("wait", help="agy: block until mail arrives in this pane, print it, exit")
+    sub.add_parser("on", help="enable peer chat: Claude panes start listening after their next turn")
+    sub.add_parser("off", help="disable peer chat: listeners stop after their current wait round")
     sub.add_parser("agy-hook", help="agy SessionStart hook: register this pane")
     deliver_cmd = sub.add_parser("deliver", help="hand a codex pane's waiting mail to its thread")
     deliver_cmd.add_argument("--pane", help="pane id, default: this pane")
@@ -656,6 +681,10 @@ def main(argv: list[str] | None = None) -> int:
         return agterm_hook()
     if args.cmd == "agy-hook":
         return agy_hook()
+    if args.cmd in ("on", "off"):
+        set_enabled(args.cmd == "on")
+        print(json.dumps({"enabled": enabled()}))
+        return 0
     try:
         if args.cmd == "say":
             result = say(read_message_file(args.file) if args.file is not None else sys.stdin.read(), args.to)

@@ -18,6 +18,10 @@ Messages go into agterm's per-pane mailboxes (`agtermctl msg`, agterm 0.40.0+). 
 
 AGY cannot be woken by anything outside it, so it must be listening: the skill has it start `peer-chat.py wait` in the background when a chat starts and after each message. If it is not, `say` reports `receiver: "agy-idle"` and the mail waits; tell agy "listen for peer chat". Pickup took from seconds to about two minutes in testing.
 
+## Opt-in
+
+Peer chat is off until the first `say` (or `peer-chat.py on`); `peer-chat.py off` turns it off again. The switch is `~/.cache/peer-chat/enabled`. While off, the hooks only record which agent runs in which pane: no Claude waiter, no Codex delivery, the agterm hook returns at once. A Claude Code that was idle when chat was turned on starts listening after its next turn; until then mail waits in its mailbox and `say` says so.
+
 ## Setup
 
 1. Link `peer-chat.py` onto your `PATH` (e.g. `~/.local/bin/peer-chat.py`).
