@@ -1,536 +1,677 @@
 #!/usr/bin/env python3
-"""Send one peer-chat message between Claude Code, Codex, and AGY (Antigravity CLI) in agterm.
+"""Let agents in one agterm workspace talk through agterm's pane mailboxes.
 
-Agents run either in separate terminals (tabs) on the same checkout — preferred —
-or in the two panes of one split session."""
+Based on umputun/agterm cookbook/two-agent-mailbox-chat (MIT). Changes: a peer is found through a
+registry of agent panes in the caller's workspace, not as the other half of a split, and AGY
+(Antigravity CLI) is a third agent kind.
+
+`say --to AGENT|SESSION:PANE` puts a message into the peer pane's mailbox. Each message names its
+sender's pane, so a reply goes straight back. Receivers:
+- Claude Code: an asyncRewake hook (`claude-hook`) that starts a turn when mail arrives.
+- Codex: its SessionStart hook (`codex-hook`) registers the thread, and agterm's `on message` hook
+  (`agterm-hook`) hands mail to it with `codex queue`.
+- AGY: no hook can wake an idle agy, so agy runs `peer-chat.py wait` as a background task; it exits
+  with the mail and agy's task-completion notice starts its next turn. `agy-hook` (SessionStart)
+  registers the pane.
+Nothing is typed into any composer.
+"""
 
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
+import fcntl
 import json
 import os
-import re
+import stat
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Iterator
-from dataclasses import dataclass, replace
 from typing import Any
 
-SUBMIT_DELAY = 0.15
-# Claude Code can take longer than a single UI frame to redraw a newly typed
-# composer while it is processing tool output.  Keep the confirmation safety
-# check, but give that redraw time to arrive before withholding Return.
-# A busy orchestrator streaming background-agent status can take several
-# seconds to redraw; override with PEER_CHAT_PROBE_TIMEOUT.
-PROBE_TIMEOUT = float(os.environ.get("PEER_CHAT_PROBE_TIMEOUT", "10.0"))
-# Claude's background-agent status redraws can briefly move the terminal cursor
-# away from the composer even while the composer itself is empty.  Retry these
-# transient states quietly; callers only need the eventual delivery result.
-# A busy target (mid tool run, long turn) keeps its composer occupied for
-# minutes, so wait up to PEER_CHAT_WAIT_S (default 300 s) before giving up.
-RETRY_DELAY = 2.0
-RETRY_ATTEMPTS = max(1, int(float(os.environ.get("PEER_CHAT_WAIT_S", "300")) / RETRY_DELAY) + 1)
-BOX_LINES = 40
-EMPTY_CURSOR_COLUMN = 2
-MIN_WRAPPED_PROBE = 40
-RULE_RE = re.compile(r"^\s*[─—-]{10,}\s*$")
-CODEX_PROMPT_RE = re.compile(r"^\s*›[\s ]*(.*?)\s*$")
-CLAUDE_PROMPT_RE = re.compile(r"^\s*❯[\s ]*(.*?)\s*$")
-AGY_PROMPT_RE = re.compile(r"^\s*[❯›>⟩][\s ]*(.*?)\s*$")  # ⟩ is Muse Code's prompt
-PASTED_RE = re.compile(r"^\[Pasted (?:Content \d+ chars?|text #\d+)\]")
+AGTERMCTL = os.environ.get("AGTERMCTL") or "agtermctl"
+STATE_DIR = os.path.join(tempfile.gettempdir(), f"agterm-peer-chat-{os.getuid()}")
+BODY_LIMIT = 64 * 1024
+LABEL = "[peer chat]"
+REPLY_LINE = "If you answer, use: peer-chat.py say --to {addr} (message on stdin or --file); do not reply only to acknowledge."
+AGENTS = ("claude", "codex", "agy")
+WAIT_ROUND_SECONDS = 30
+WAKE = 2
+# codex global options that take a value, skipped to find its subcommand
+CODEX_VALUE_FLAGS = frozenset({"-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
+                               "-i", "--image", "-m", "--model", "--local-provider", "-p", "--profile",
+                               "-s", "--sandbox", "-C", "--cd", "--add-dir", "-a", "--ask-for-approval"})
 
 
-@dataclass(frozen=True)
-class Profile:
-    pane: str
-    agent: str
-    command: str
-    submit: str
+class ChatError(RuntimeError):
+    """a refusal or failure reported to the caller as {"error": ...}."""
 
 
-PROFILES = {
-    "claude": Profile("left", "claude", "claude", "\n"),
-    "codex": Profile("right", "codex", "codex", "\t"),
-    "agy": Profile("right", "agy", "agy", "\n"),
-    "muse": Profile("right", "muse", "muse", "\n"),
-}
+def run(args: list[str], timeout: float = 30, stdin: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
 
 
-class PromptBlocked(RuntimeError):
-    """The target is not ready before any text was written."""
+def ctl_args(*args: str) -> list[str]:
+    cmd = [AGTERMCTL, *args]
+    socket = os.environ.get("AGTERM_SOCKET", "")
+    if socket:
+        cmd += ["--socket", socket]
+    return cmd
 
 
-def ctl(*args: str) -> str:
-    command = os.environ.get("AGTERMCTL", "agtermctl")
-    result = subprocess.run(
-        [command, *args],
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=30,
-    )
-    if result.returncode:
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"agtermctl {' '.join(args)} failed: {detail}")
-    return result.stdout
+def agtermctl(*args: str, stdin: str | None = None) -> Any:
+    res = run(ctl_args(*args), stdin=stdin)
+    if res.returncode != 0:
+        raise ChatError("agtermctl {} failed: {}".format(" ".join(args[:2]), (res.stderr or res.stdout).strip()))
+    return json.loads(res.stdout) if "--json" in args else res.stdout
+
+
+def state_path(name: str) -> str:
+    os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+    return os.path.join(STATE_DIR, name)
+
+
+def read_json(path: str) -> dict[str, Any] | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            value = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def write_json(path: str, value: dict[str, Any]) -> None:
+    # atomic replace: hooks in both panes read these files while they are rewritten
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(value, f)
+    os.replace(tmp, path)
+
+
+def remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def pid_alive(pid: Any) -> bool:
+    if not isinstance(pid, int) or pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def render(message: dict[str, Any]) -> str:
+    """the text an agent receives: chat mail as sent, any other mail marked with its bus sender."""
+    body = str(message.get("body", "")).rstrip()
+    if body.startswith(LABEL):
+        return body
+    return "[agterm mailbox, not a peer chat message] from {}:\n{}".format(
+        message.get("from") or "outside agterm", body)
+
+
+def compose(text: str, agent: str, addr: str) -> str:
+    body = text.strip()
+    if body.startswith(LABEL):
+        body = body.split("\n", 1)[1].strip() if "\n" in body else ""
+    if "\nIf you answer, use: peer-chat.py say" in body:
+        body = body.rsplit("\nIf you answer, use: peer-chat.py say", 1)[0].rstrip()
+    if not body:
+        raise ChatError("message is empty")
+    message = f"{LABEL} from {agent} at {addr}\n{body}\n\n{REPLY_LINE.format(addr=addr)}"
+    size = len(message.encode("utf-8"))
+    if size > BODY_LIMIT:
+        raise ChatError(f"message is {size} bytes, over agterm's {BODY_LIMIT}-byte limit; put the long part in a file "
+                        "and name its path")
+    return message
+
+
+def read_message_file(path: str) -> str:
+    """the message text in `path`, which must be a regular file within agterm's body limit."""
+    # codex's allow rule runs this outside its sandbox, so a fifo or device path must neither block nor flood it
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise ChatError(f"{path} is not a regular file")
+    with os.fdopen(fd, "rb") as f:
+        data = f.read(BODY_LIMIT + 1)
+    if len(data) > BODY_LIMIT:
+        raise ChatError(f"{path} is over agterm's {BODY_LIMIT}-byte limit; put the long part in another file "
+                        "and name its path")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ChatError(f"{path} is not utf-8 text") from None
 
 
 def tree() -> Any:
-    return json.loads(ctl("tree", "--json"))
+    window = os.environ.get("AGTERM_WINDOW_ID", "")
+    return agtermctl("tree", "--json", *(["--window", window] if window else []))
 
 
-def checkout_key(path: str) -> str:
-    command = [
-        "git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return os.path.realpath(path)
-    if result.returncode == 0 and result.stdout.strip():
-        return os.path.realpath(result.stdout.strip())
-    return os.path.realpath(path)
+def workspace_panes(t: Any, sid: str) -> list[tuple[str, str, str]]:
+    """(session id, pane id, session name) of every pane in the workspace that holds session `sid`."""
+    for ws in ((t.get("result") or {}).get("tree") or {}).get("workspaces") or []:
+        sessions = ws.get("sessions") or []
+        if any(x.get("id") == sid for x in sessions):
+            return [(x["id"], str(su.get("paneID")), str(x.get("name") or x.get("title") or ""))
+                    for x in sessions for su in x.get("surfaces") or [] if su.get("paneID")]
+    raise ChatError(f"session {sid} is not in this agterm window")
 
 
-def walk(value: Any) -> Iterator[dict[str, Any]]:
-    if isinstance(value, dict):
-        if "id" in value and ("foreground" in value or "splitForeground" in value):
-            yield value
-        for child in value.values():
-            yield from walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk(child)
-
-
-def command_name(value: str) -> str:
-    name = os.path.basename(value.strip())
-    if not name or name in {".", ".."} or any(char.isspace() for char in name):
-        raise ValueError("target command must be one executable name or path")
-    return name
-
-
-def target_profile(
-    target: str,
-    explicit_command: str | None,
-    explicit_pane: str | None = None,
-) -> Profile:
-    profile = PROFILES[target]
-    env_name = f"PEER_CHAT_{profile.agent.upper()}_COMMAND"
-    configured = explicit_command or os.environ.get(env_name) or profile.command
-    pane = explicit_pane or profile.pane
-    return replace(profile, command=command_name(configured), pane=pane)
-
-
-def runs(foreground: Any, command: str) -> bool:
-    if not isinstance(foreground, list):
-        return False
-    pattern = re.compile(rf"(?:^|[/\s]){re.escape(command)}(?:$|[\s-])")
-    return any(pattern.search(str(part)) for part in foreground)
-
-
-def has_target(info: dict[str, Any], profile: Profile) -> bool:
-    # A single-pane session (no split) is a valid LEFT target: its foreground IS the agent.
-    if not info.get("hasSplit") and profile.pane != "left":
-        return False
-    field = "foreground" if profile.pane == "left" else "splitForeground"
-    return runs(info.get(field), profile.command)
-
-
-def find_node(sid: str) -> dict[str, Any]:
-    needle = sid.lower()
-    matches = [
-        info
-        for info in walk(tree())
-        if str(info.get("id", "")).lower().startswith(needle)
-    ]
-    if len(matches) == 1:
-        return matches[0]
-    if not matches:
-        raise RuntimeError(f"no such session: {sid}")
-    raise RuntimeError(f"ambiguous session prefix {sid!r}")
-
-
-def own_session() -> str | None:
-    """AGTERM_SESSION_ID, but only if that session still exists.
-
-    Codex runs tool commands through a shared app-server daemon whose env was
-    captured from whichever agterm session started it, so the inherited id can
-    name a long-closed session (or a different live one). A dead id is
-    treated as absent; callers that know better pass --session / --from."""
-    own = os.environ.get("AGTERM_SESSION_ID")
-    if not own:
-        return None
-    if any(str(i.get("id", "")).lower() == own.lower() for i in walk(tree())):
-        return own
+def registered_agent(sid: str, pane: str) -> str | None:
+    """which agent is registered and alive in a pane, or None."""
+    if Courier(sid, pane).registration() is not None:
+        return "codex"
+    reg = read_json(state_path(f"claude-{pane}.json")) or {}
+    if reg.get("session") in (None, sid) and pid_alive(reg.get("pid")):
+        return "claude"
+    reg = read_json(state_path(f"agy-{pane}.json")) or {}
+    if reg.get("session") == sid and pid_alive(reg.get("pid")):
+        return "agy"
     return None
 
 
-def dump_pane(sid: str, profile: Profile) -> str:
-    """Save the target pane text for post-mortem; returns a hint for the error."""
-    path = f"/private/tmp/peer-chat-fail-{time.strftime('%Y%m%d-%H%M%S')}.txt"
-    try:
-        text = pane_text(sid, profile)
-        with open(path, "w") as fh:
-            fh.write(text)
-    except (OSError, subprocess.SubprocessError, RuntimeError) as err:
-        return f" (pane dump failed: {err})"
-    return f" (pane text saved to {path})"
+def resolve_peer(to: str, sid: str, pane: str, t: Any = None) -> tuple[str, str]:
+    """the (session, pane) a message to `to` goes to: an explicit SESSION:PANE, or the one live pane in
+    this workspace registered as agent `to`."""
+    if ":" in to:
+        psid, ppane = to.split(":", 1)
+        if not psid or not ppane:
+            raise ChatError(f"bad address {to!r}, expected SESSION:PANE")
+        return psid, ppane
+    if to not in AGENTS:
+        raise ChatError(f"--to must be one of {', '.join(AGENTS)} or SESSION:PANE")
+    hits = [(s_, p, n) for s_, p, n in workspace_panes(t if t is not None else tree(), sid)
+            if p != pane and registered_agent(s_, p) == to]
+    if not hits:
+        raise ChatError(f"no running {to} is registered in this workspace; it registers through its "
+                        "SessionStart hook when started in an agterm pane (see README)")
+    if len(hits) > 1:
+        raise ChatError(f"several {to} panes in this workspace, pass --to SESSION:PANE: " +
+                        "; ".join(f"{n or '?'} = {s_}:{p}" for s_, p, n in hits))
+    return hits[0][0], hits[0][1]
 
 
-def require_target(sid: str, profile: Profile) -> str:
-    info = find_node(sid)
-    if not info.get("hasSplit") and profile.pane != "left":
-        raise RuntimeError(f"session {sid} has no split")
-    if not has_target(info, profile):
-        raise RuntimeError(
-            f"{profile.agent} target pane is not running {profile.command!r}; "
-            "for a wrapper, pass --target-command NAME"
-        )
-    return str(info["id"])
+def own_identity() -> tuple[str, str]:
+    sid = os.environ.get("AGTERM_SESSION_ID", "")
+    pane = os.environ.get("AGTERM_PANE_ID", "")
+    if not sid or not pane:
+        raise ChatError("AGTERM_SESSION_ID and AGTERM_PANE_ID are unset: not inside an agterm pane, "
+                        "or the agent strips them from its tool commands (see Setup)")
+    pid = find_codex_pid(os.getppid())
+    if pid is not None and is_codex_daemon(pid):
+        raise ChatError("running under Codex's shared app-server, whose AGTERM_* ids belong to the pane that "
+                        "started it: start codex with --no-daemon (see Setup)")
+    return sid, pane
 
 
-def solo(info: dict[str, Any], profile: Profile) -> bool:
-    """A separate single-pane terminal whose only pane runs the target agent."""
-    return not info.get("hasSplit") and runs(info.get("foreground"), profile.command)
+class Waiter:
+    """the Claude Code receiver for one pane, run by an asyncRewake hook.
 
+    It exits 2 with the mail on stderr, which starts a Claude turn, and 0 in every other case, errors
+    included. Mail is taken only between turns: UserPromptSubmit sets the busy mark, Stop and a
+    non-compact SessionStart clear it. Esc fires no Stop, so mail after an interrupted turn waits for
+    the next turn's end.
+    """
 
-def resolve_session(
-    explicit: str | None, profile: Profile, pane_pinned: bool
-) -> tuple[str, Profile]:
-    # A single-pane session is addressed through its only (left) pane, unless
-    # the caller pinned --pane, in which case require_target keeps refusing.
-    def settle(sid: str) -> tuple[str, Profile]:
-        info = find_node(sid)
-        if not pane_pinned and not info.get("hasSplit"):
-            return require_target(sid, replace(profile, pane="left")), replace(profile, pane="left")
-        return require_target(sid, profile), profile
+    BUSY_POLL_SECONDS = 1.0
+    READ_ATTEMPTS = 3
+    RETRY_SECONDS = 1.0
+    LOCK_POLL_SECONDS = 1.0
+    # a waiter whose Claude Code exited notices after its current read round, then frees the lock
+    TAKEOVER_SECONDS = WAIT_ROUND_SECONDS + 15
 
-    if explicit:
-        return settle(explicit)
-    own = own_session()
-    wanted = checkout_key(os.getcwd())
-    nodes = list(walk(tree()))
-    # Preferred layout: each agent in its own terminal (tab) on the same checkout.
-    separate = [
-        str(info["id"])
-        for info in nodes
-        if not pane_pinned
-        and solo(info, profile)
-        and str(info["id"]) != own
-        and info.get("cwd")
-        and checkout_key(str(info["cwd"])) == wanted
-    ]
-    if len(separate) == 1:
-        return settle(separate[0])
-    if len(separate) > 1:
-        raise RuntimeError(
-            f"more than one separate {profile.agent} terminal shares this checkout; "
-            "pass --session ID"
-        )
-    # Legacy layout: both agents in one split session.
-    if own:
-        return require_target(own, profile), profile
-    matches = [
-        str(info["id"])
-        for info in nodes
-        if has_target(info, profile)
-        and info.get("cwd")
-        and checkout_key(str(info["cwd"])) == wanted
-    ]
-    if len(matches) == 1:
-        return matches[0], profile
-    if not matches:
-        raise RuntimeError(
-            f"this checkout maps to no terminal running {profile.command!r}, "
-            f"neither a separate one nor the {profile.pane} pane of a split; "
-            "for a wrapper, pass --target-command NAME"
-        )
-    raise RuntimeError(
-        "more than one session shares this checkout; pass --session ID or launch "
-        "the agent with shell_environment_policy.set.AGTERM_SESSION_ID"
-    )
+    def __init__(self, sid: str, pane: str) -> None:
+        self.sid = sid
+        self.pane = pane
+        self.parent = os.getppid()
+        self.lock_path = state_path(f"claude-{pane}.lock")
+        self.busy_path = state_path(f"claude-{pane}.busy")
+        self.claude_path = state_path(f"claude-{pane}.json")
+        self.waiter_path = state_path(f"claude-{pane}.waiter")
+        self.log_path = state_path(f"claude-{pane}.log")
 
+    def listening(self) -> bool:
+        """whether the Claude Code that last ran this pane's hook is alive, waiter running or not."""
+        return pid_alive((read_json(self.claude_path) or {}).get("pid"))
 
-def detect_sender_label(
-    sid: str,
-    profile: Profile,
-    from_agent: str | None,
-    from_label: str | None,
-) -> str:
-    if from_label:
-        label = from_label.strip()
-        return label if label.endswith(":") else f"{label}: "
-    if from_agent:
-        sender_str = "AGY" if from_agent.lower() == "agy" else from_agent.capitalize()
-        return f"Chat from {sender_str}: "
+    def busy(self) -> bool:
+        return os.path.exists(self.busy_path)
 
-    # Cross-session send (target is another agterm session): the target's other
-    # pane says nothing about us, so name the sender from our own session and
-    # tell the recipient exactly how to answer back.
-    own = own_session()
-    if own and own != sid:
-        fg = find_node(own).get("foreground")
-        sender = next((a for a in ("claude", "codex", "agy", "muse") if runs(fg, a)), "claude")
-        sender_str = "AGY" if sender == "agy" else sender.capitalize()
-        return (f"Chat from {sender_str} (reply with: peer-chat.py --to {sender} "
-                f"--session {own} --stdin): ")
+    def mark_busy(self) -> None:
+        with open(self.busy_path, "w"):
+            pass
 
-    info = find_node(sid)
-    opposite_pane = "right" if profile.pane == "left" else "left"
-    field = "foreground" if opposite_pane == "left" else "splitForeground"
-    fg = info.get(field)
-    if runs(fg, "claude"):
-        sender_str = "Claude"
-    elif runs(fg, "agy"):
-        sender_str = "AGY"
-    elif runs(fg, "codex"):
-        sender_str = "Codex"
-    elif runs(fg, "muse"):
-        sender_str = "Muse"
-    else:
-        # No split to read (cross-session send from an agent whose env lacks
-        # AGTERM_SESSION_ID, e.g. codex): name the sender from our own
-        # process ancestry instead of guessing by pane side.
-        sender = ancestor_agent()
-        if sender:
-            sender_str = "AGY" if sender == "agy" else sender.capitalize()
-        else:
-            sender_str = "Claude" if opposite_pane == "left" else "AGY"
-    return f"Chat from {sender_str}: "
-
-
-def ancestor_agent() -> str | None:
-    pid = os.getppid()
-    for _ in range(12):
-        if pid <= 1:
-            break
-        out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
-                             capture_output=True, text=True).stdout.strip()
-        if not out:
-            break
-        ppid, _, command = out.partition(" ")
-        agent = next((a for a in ("claude", "codex", "agy", "muse") if runs([command], a)), None)
-        if agent:
-            return agent
-        pid = int(ppid)
-    return None
-
-
-def pane_text(sid: str, profile: Profile) -> str:
-    require_target(sid, profile)
-    return ctl(
-        "session",
-        "text",
-        "--pane",
-        profile.pane,
-        "--target",
-        sid,
-        "--lines",
-        str(BOX_LINES),
-    )
-
-
-def cursor_column(sid: str, profile: Profile) -> int:
-    require_target(sid, profile)
-    value = ctl(
-        "surface",
-        "cursor",
-        "--target",
-        f"surface:{sid}:{profile.pane}",
-    ).strip()
-    try:
-        return int(value)
-    except ValueError as err:
-        raise RuntimeError(f"surface cursor returned {value!r}") from err
-
-
-def type_text(sid: str, profile: Profile, text: str) -> None:
-    require_target(sid, profile)
-    ctl(
-        "session",
-        "type",
-        text,
-        "--pane",
-        profile.pane,
-        "--target",
-        sid,
-    )
-
-
-def codex_prompt_text(text: str) -> str | None:
-    for line in reversed(text.splitlines()[-BOX_LINES:]):
-        if match := CODEX_PROMPT_RE.match(line):
-            return match.group(1)
-    return None
-
-
-def claude_prompt_text(text: str) -> str | None:
-    lines = text.splitlines()[-BOX_LINES:]
-    for index in range(len(lines) - 1, -1, -1):
-        match = CLAUDE_PROMPT_RE.match(lines[index])
-        if not match:
-            continue
-        # Current Claude renders queued messages immediately before the lower
-        # divider, rather than immediately after the upper divider.  A divider
-        # below still distinguishes its composer from ordinary transcript text.
-        if any(RULE_RE.match(line) for line in lines[index + 1 :]):
-            return match.group(1)
-    return None
-
-
-def agy_prompt_text(text: str) -> str | None:
-    lines = text.splitlines()[-BOX_LINES:]
-    for line in reversed(lines):
-        if match := AGY_PROMPT_RE.match(line):
-            return match.group(1)
-    return None
-
-
-def prompt_text(profile: Profile, text: str) -> str | None:
-    if profile.agent == "codex":
-        return codex_prompt_text(text)
-    if profile.agent == "claude":
-        return claude_prompt_text(text)
-    if profile.agent == "agy":
-        return agy_prompt_text(text)
-    return agy_prompt_text(text)
-
-
-def normalize(label: str, message: str) -> str:
-    line = " ".join(message.split())
-    prefix = label.strip()
-    while line.lower().startswith(prefix.lower()):
-        line = line[len(prefix) :].lstrip(": ").strip()
-    if not line:
-        raise ValueError("chat message is empty")
-    return label + line
-
-
-def composer_has_message(profile: Profile, label: str, content: str, typed: str) -> bool:
-    if profile.agent in {"claude", "agy", "muse"}:
-        # Match a meaningful prefix of this exact send.  Checking only the
-        # label could mistake an older chat line for the newly typed composer.
-        required = min(len(typed), MIN_WRAPPED_PROBE)
-        return (
-            typed.startswith(content) and len(content) >= required
-        ) or bool(PASTED_RE.match(content))
-    required = min(len(typed), MIN_WRAPPED_PROBE)
-    literal = typed.startswith(content) and len(content) >= required
-    return literal or bool(PASTED_RE.fullmatch(content))
-
-
-def wait_for_composed(sid: str, profile: Profile, label: str, typed: str) -> str | None:
-    deadline = time.monotonic() + PROBE_TIMEOUT
-    while True:
-        content = prompt_text(profile, pane_text(sid, profile))
-        if content and composer_has_message(profile, label, content, typed):
-            return content
-        if time.monotonic() >= deadline:
-            return None
-        time.sleep(0.1)
-
-
-def wait_for_accepted(sid: str, profile: Profile, held: str) -> bool:
-    deadline = time.monotonic() + PROBE_TIMEOUT
-    while True:
-        content = prompt_text(profile, pane_text(sid, profile))
-        if content is None or content != held:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.1)
-
-
-def composer_is_empty(sid: str, profile: Profile) -> bool:
-    # Claude may leave its terminal cursor on a background-agent status row
-    # during a redraw.  Its last prompt line followed by the lower divider is
-    # stronger evidence: it distinguishes an empty composer from an occupied
-    # one without depending on the transient cursor position.
-    if profile.agent == "claude":
-        content = claude_prompt_text(pane_text(sid, profile))
-        if content is not None:
-            return not content.strip()
-    return cursor_column(sid, profile) == EMPTY_CURSOR_COLUMN
-
-
-def send(sid: str, profile: Profile, label: str, message: str) -> int:
-    typed = normalize(label, message)
-    if not composer_is_empty(sid, profile):
-        raise PromptBlocked(f"{profile.agent} is not ready; message was not sent")
-
-    type_text(sid, profile, typed)
-    held = wait_for_composed(sid, profile, label, typed)
-    if held is None:
-        raise RuntimeError(
-            "message was typed but not verified in the target composer; submit withheld"
-            + dump_pane(sid, profile)
-        )
-
-    time.sleep(SUBMIT_DELAY)
-    type_text(sid, profile, profile.submit)
-    if not wait_for_accepted(sid, profile, held):
-        raise RuntimeError("target did not accept the message; it may remain composed")
-    return len(message)
-
-
-def send_with_retry(sid: str, profile: Profile, label: str, message: str) -> int:
-    """Quietly retry only a pre-write refusal."""
-    for attempt in range(1, RETRY_ATTEMPTS + 1):
+    def run(self, event: str, source: str) -> int:
         try:
-            return send(sid, profile, label, message)
-        except PromptBlocked as err:
-            if attempt == RETRY_ATTEMPTS:
-                raise PromptBlocked(
-                    f"{profile.agent} did not become ready; message was not sent"
-                    + dump_pane(sid, profile)
-                ) from err
-            time.sleep(RETRY_DELAY)
-    raise AssertionError("unreachable")
+            write_json(self.claude_path, {"pid": self.parent, "session": self.sid})
+            if event == "UserPromptSubmit":
+                self.mark_busy()
+                return 0
+            # auto-compaction fires SessionStart in the middle of a turn
+            if not (event == "SessionStart" and source == "compact"):
+                remove(self.busy_path)
+            return self.serve()
+        except Exception as e:  # noqa: BLE001 - any failure must exit 0, never wake Claude
+            self.log(f"error: {e}")
+            return 0
 
+    def log(self, msg: str) -> None:
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write("{} pid={} {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), os.getpid(), msg))
+        except OSError:
+            pass
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Peer chat between agents running in separate agterm terminals or split panes."
-    )
-    parser.add_argument("--to", choices=PROFILES, required=True, help="target agent (claude, codex, agy, muse)")
-    parser.add_argument("--from", choices=["claude", "codex", "agy", "muse"], dest="from_agent", help="sender agent name")
-    parser.add_argument("--from-label", help="custom sender label prefix (e.g. 'Chat from AGY: ')")
-    parser.add_argument("--pane", choices=["left", "right"], help="override target pane side")
-    parser.add_argument("--session")
-    parser.add_argument(
-        "--target-command",
-        type=command_name,
-        metavar="NAME",
-        help="target agent executable or wrapper name",
-    )
-    parser.add_argument("--stdin", action="store_true", required=True)
-    return parser.parse_args()
+    def serve(self) -> int:
+        with open(self.lock_path, "a") as lock:
+            if not self.take_lock(lock):
+                return 0
+            write_json(self.waiter_path, {"pid": os.getpid(), "parent": self.parent})
+            try:
+                return self.loop()
+            finally:
+                remove(self.waiter_path)
 
+    def take_lock(self, lock: Any) -> bool:
+        """the pane's waiter lock; False when a waiter for this same Claude Code already holds it."""
+        deadline = time.monotonic() + self.TAKEOVER_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except OSError:
+                if (read_json(self.waiter_path) or {}).get("parent") == self.parent:
+                    return False
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(self.LOCK_POLL_SECONDS)
 
-def main() -> int:
-    args = parse_args()
-    try:
-        profile = target_profile(args.to, args.target_command, args.pane)
-        sid, profile = resolve_session(args.session, profile, args.pane is not None)
-        label = detect_sender_label(sid, profile, args.from_agent, args.from_label)
-        sent = send_with_retry(sid, profile, label, sys.stdin.read())
-        print(json.dumps({"sent": sent}))
+    def loop(self) -> int:
+        while os.getppid() == self.parent:
+            messages = self.peek()
+            # the wait can outlive the Claude Code that started it; mail taken then reaches nobody
+            if not messages or os.getppid() != self.parent:
+                continue
+            if self.busy():
+                time.sleep(self.BUSY_POLL_SECONDS)
+                continue
+            # write before the ack: a pipe Claude closed fails here and leaves the mail in the mailbox
+            sys.stderr.write("\n\n".join(render(m) for m in messages) + "\n")
+            sys.stderr.flush()
+            agtermctl("msg", "ack", "--as", self.identity(), *[m["id"] for m in messages])
+            # the turn this starts is Stop-hook feedback, which fires no UserPromptSubmit
+            self.mark_busy()
+            return WAKE
         return 0
-    except KeyboardInterrupt:
-        print("peer-chat: interrupted", file=sys.stderr)
-        return 130
-    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as err:
-        print(f"peer-chat: {err}", file=sys.stderr)
+
+    def identity(self) -> str:
+        return f"{self.sid}:{self.pane}"
+
+    def peek(self) -> list[dict[str, Any]]:
+        args = ctl_args("msg", "read", "--wait", "--timeout", str(WAIT_ROUND_SECONDS), "--json", "--as",
+                        self.identity())
+        res = None
+        for attempt in range(self.READ_ATTEMPTS):
+            if attempt:
+                time.sleep(self.RETRY_SECONDS)
+            res = run(args, timeout=WAIT_ROUND_SECONDS + 15)
+            if res.returncode == 124:
+                return []
+            if res.returncode == 0:
+                return (json.loads(res.stdout).get("result") or {}).get("messages") or []
+        detail = (res.stderr or res.stdout).strip() if res else ""
+        raise ChatError(f"msg read failed {self.READ_ATTEMPTS} times: {detail}")
+
+
+class Courier:
+    """the Codex receiver for one pane: hands its mail to the registered thread with `codex queue`.
+
+    A message is acked only after codex accepted it, so a failed hand-over leaves it in the mailbox.
+    """
+
+    LOCK_SECONDS = 30
+
+    def __init__(self, sid: str, pane: str) -> None:
+        self.sid = sid
+        self.pane = pane
+        self.path = state_path(f"codex-{pane}.json")
+
+    def registration(self) -> dict[str, Any] | None:
+        """the thread a live codex registered in this pane; None when there is none or its codex is gone."""
+        reg = read_json(self.path)
+        if not reg or reg.get("session") != self.sid or not reg.get("thread"):
+            return None
+        # codex queue accepts mail for a thread nobody runs, so it would be acked and lost; a registration
+        # the shared app-server made names whichever of its threads started last, not this pane's
+        if not pid_alive(reg.get("pid")) or is_codex_daemon(reg["pid"]):
+            return None
+        return reg
+
+    def register(self, thread: str, pid: int, executable: str | None) -> None:
+        reg: dict[str, Any] = {"session": self.sid, "thread": thread, "pid": pid}
+        if executable:
+            reg["codex"] = executable
+        write_json(self.path, reg)
+
+    def deliver(self) -> int:
+        reg = self.registration()
+        if reg is None:
+            raise ChatError(f"no running codex has registered pane {self.pane}")
+        with open(state_path(f"codex-{self.pane}.lock"), "a") as lock:
+            self.take_lock(lock)
+            # the codex may have exited or been replaced while another delivery held the lock
+            reg = self.registration()
+            if reg is None:
+                raise ChatError(f"the codex in pane {self.pane} exited before delivery")
+            return self.drain(reg)
+
+    def take_lock(self, lock: Any) -> None:
+        deadline = time.monotonic() + self.LOCK_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ChatError(f"another delivery held the lock for {self.LOCK_SECONDS}s") from None
+                time.sleep(0.2)
+
+    def drain(self, reg: dict[str, Any]) -> int:
+        identity = f"{self.sid}:{self.pane}"
+        # agterm's event hook runs with the app's PATH, which rarely holds an npm or nvm codex
+        codex = str(reg.get("codex") or "codex")
+        delivered = 0
+        while True:
+            out = agtermctl("msg", "read", "--json", "--as", identity)
+            messages = (out.get("result") or {}).get("messages") or []
+            if not messages:
+                return delivered
+            for m in messages:
+                if not pid_alive(reg.get("pid")):
+                    raise ChatError(f"the codex in pane {self.pane} exited after {delivered} delivered; "
+                                    "the rest stays in the mailbox")
+                res = run([codex, "queue", "--thread", str(reg["thread"]), "--message", render(m)], timeout=60)
+                if res.returncode != 0:
+                    detail = (res.stderr or res.stdout).strip()
+                    raise ChatError(f"codex queue failed after {delivered} delivered: {detail}")
+                agtermctl("msg", "ack", "--as", identity, m["id"])
+                delivered += 1
+
+
+def receiver(sid: str, pane: str) -> str:
+    """which receiver serves a pane now: codex, claude, agy (listening), agy-idle, or none."""
+    agent = registered_agent(sid, pane) or "none"
+    if agent == "agy" and not pid_alive((read_json(state_path(f"agy-{pane}.waiter")) or {}).get("pid")):
+        return "agy-idle"
+    return agent
+
+
+def own_agent() -> str:
+    if os.environ.get("CLAUDECODE"):
+        return "claude"
+    if find_pid(os.getppid(), "codex") is not None:
+        return "codex"
+    if find_pid(os.getppid(), "agy") is not None:
+        return "agy"
+    return "unknown"
+
+
+def say(text: str, to: str) -> dict[str, Any]:
+    sid, pane = own_identity()
+    psid, peer = resolve_peer(to, sid, pane)
+    message = compose(text, own_agent(), f"{sid}:{pane}")
+    # delivery to codex is the agterm event hook's job: codex queue fails inside a codex tool sandbox
+    agtermctl("msg", "send", "--stdin", "--to", f"{psid}:{peer}", "--json", stdin=message)
+    result: dict[str, Any] = {"sent": len(message.encode("utf-8")), "to": f"{psid}:{peer}",
+                              "receiver": receiver(psid, peer)}
+    if result["receiver"] == "claude":
+        result["peerBusy"] = Waiter(psid, peer).busy()
+    if result["receiver"] == "agy-idle":
+        result["note"] = ("agy is not listening; the mail waits in its mailbox until the user tells agy to "
+                          "listen for peer chat")
+    return result
+
+
+def status() -> dict[str, Any]:
+    sid, pane = own_identity()
+    peers = [{"to": f"{s_}:{p}", "name": n, "receiver": receiver(s_, p)}
+             for s_, p, n in workspace_panes(tree(), sid) if p != pane and registered_agent(s_, p)]
+    return {"me": f"{sid}:{pane}", "agent": own_agent(), "peers": peers}
+
+
+def wait_mail() -> int:
+    """agy's receiver, run as a background task: exit with this pane's mail printed, acked."""
+    sid, pane = own_identity()
+    write_json(state_path(f"agy-{pane}.json"), {"session": sid, "pid": find_pid(os.getppid(), "agy") or os.getppid()})
+    with open(state_path(f"agy-{pane}.lock"), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("another peer-chat listener already runs in this pane; no mail here, nothing to do")
+            return 0
+        write_json(state_path(f"agy-{pane}.waiter"), {"pid": os.getpid()})
+        try:
+            ident = f"{sid}:{pane}"
+            while True:
+                res = run(ctl_args("msg", "read", "--wait", "--timeout", str(WAIT_ROUND_SECONDS), "--json",
+                                   "--as", ident), timeout=WAIT_ROUND_SECONDS + 15)
+                if res.returncode == 124:
+                    continue
+                if res.returncode != 0:
+                    raise ChatError("msg read failed: " + (res.stderr or res.stdout).strip())
+                messages = (json.loads(res.stdout).get("result") or {}).get("messages") or []
+                if messages:
+                    print("\n\n".join(render(m) for m in messages))
+                    sys.stdout.flush()
+                    agtermctl("msg", "ack", "--as", ident, *[m["id"] for m in messages])
+                    return 0
+        finally:
+            remove(state_path(f"agy-{pane}.waiter"))
+
+
+def find_pid(start: int, name: str) -> int | None:
+    """the nearest ancestor of `start`, itself included, whose command is `name`."""
+    pid = start
+    for _ in range(8):
+        res = run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], timeout=5)
+        parts = res.stdout.split(None, 1)
+        if res.returncode != 0 or len(parts) < 2:
+            return None
+        if os.path.basename(parts[1].strip()) == name:
+            return pid
+        pid = int(parts[0])
+        if pid <= 1:
+            return None
+    return None
+
+
+def find_codex_pid(start: int) -> int | None:
+    return find_pid(start, "codex")
+
+
+def process_argv(pid: int) -> list[str] | None:
+    """the process's argv with its real boundaries, from macOS KERN_PROCARGS2; ps joins them."""
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+    size = ctypes.c_size_t(0)
+    if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0 or size.value < 4:
+        return None
+    raw = buf.raw[:size.value]
+    argc = int.from_bytes(raw[:4], sys.byteorder)
+    # argc, the executable path, NUL padding, then argc NUL-terminated strings
+    rest = raw[4:]
+    rest = rest[rest.find(b"\0"):].lstrip(b"\0")
+    args = rest.split(b"\0")[:argc]
+    return [a.decode("utf-8", "replace") for a in args] if len(args) == argc else None
+
+
+def executable_path(pid: int) -> str | None:
+    """the absolute path of the process's executable, from macOS proc_pidpath."""
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    buf = ctypes.create_string_buffer(4096)
+    if libproc.proc_pidpath(pid, buf, ctypes.sizeof(buf)) <= 0:
+        return None
+    return buf.value.decode("utf-8", "replace")
+
+
+def codex_subcommand(argv: list[str]) -> str:
+    """the first argument after codex's global options and their values."""
+    i = 1
+    while i < len(argv) and argv[i].startswith("-"):
+        i += 2 if argv[i] in CODEX_VALUE_FLAGS else 1
+    return argv[i] if i < len(argv) else ""
+
+
+def is_codex_exec(pid: int) -> bool:
+    """whether codex is a headless `codex exec` run; an unreadable argv counts as one."""
+    argv = process_argv(pid)
+    return argv is None or codex_subcommand(argv) in ("exec", "e")
+
+
+def is_codex_daemon(pid: int) -> bool:
+    """whether codex is the shared app-server, which runs every client's hooks and commands with the ids of
+    the pane that started it."""
+    argv = process_argv(pid)
+    return argv is not None and codex_subcommand(argv) == "app-server"
+
+
+def hook_event() -> dict[str, Any]:
+    try:
+        value = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def claude_hook() -> int:
+    sid = os.environ.get("AGTERM_SESSION_ID", "")
+    pane = os.environ.get("AGTERM_PANE_ID", "")
+    # a `claude -p` started from an agterm pane inherits its AGTERM_* and must not take the pane's mail
+    if not sid or not pane or os.environ.get("CLAUDE_CODE_ENTRYPOINT") != "cli":
+        return 0
+    event = hook_event()
+    return Waiter(sid, pane).run(str(event.get("hook_event_name", "")), str(event.get("source", "")))
+
+
+def codex_hook() -> int:
+    sid = os.environ.get("AGTERM_SESSION_ID", "")
+    pane = os.environ.get("AGTERM_PANE_ID", "")
+    if not sid or not pane:
+        return 0
+    try:
+        event = hook_event()
+        thread = event.get("session_id")
+        # codex's background memory session starts with no transcript, and codex queue cannot reach it
+        if not thread or not event.get("transcript_path"):
+            return 0
+        pid = find_codex_pid(os.getppid())
+        # a nested `codex exec` fires SessionStart too and would take over the pane's thread
+        if pid is None or is_codex_exec(pid) or is_codex_daemon(pid):
+            return 0
+        Courier(sid, pane).register(str(thread), pid, executable_path(pid))
+        # detached, so codex's startup never waits on queue calls into its own thread
+        with open(state_path(f"codex-{pane}.log"), "a") as log:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "deliver"], stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    except Exception:  # noqa: BLE001 - a hook failure must not disturb codex's start
+        return 0
+    return 0
+
+
+def agy_hook() -> int:
+    """agy SessionStart hook: register this pane as agy. agy's hook contract wants JSON on stdout."""
+    sid = os.environ.get("AGTERM_SESSION_ID", "")
+    pane = os.environ.get("AGTERM_PANE_ID", "")
+    try:
+        hook_event()
+        if sid and pane:
+            pid = find_pid(os.getppid(), "agy") or os.getppid()
+            write_json(state_path(f"agy-{pane}.json"), {"session": sid, "pid": pid})
+    except Exception:  # noqa: BLE001 - a hook failure must not disturb agy's start
+        pass
+    print("{}")
+    return 0
+
+
+def agterm_hook() -> int:
+    """the agterm `on message` hook: hand new mail for a registered codex pane to its thread."""
+    event = hook_event()
+    payload = event.get("payload")
+    sid = str(event.get("session") or "")
+    pane = str(payload.get("paneID") or "") if isinstance(payload, dict) else ""
+    if not sid or not pane:
+        return 0
+    courier = Courier(sid, pane)
+    if courier.registration() is None:
+        return 0
+    socket = os.environ.get("AGT_SOCKET", "")
+    if not socket:
+        sys.stderr.write("AGT_SOCKET is unset; refusing to guess which agterm to read mail from\n")
         return 1
+    # the app's own socket wins over any AGTERM_SOCKET inherited from where agterm was started
+    os.environ["AGTERM_SOCKET"] = socket
+    try:
+        courier.deliver()
+    except (ChatError, OSError, ValueError, subprocess.SubprocessError) as e:
+        sys.stderr.write(f"delivery to codex in pane {pane} failed: {e}\n")
+        return 1
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="peer-chat.py")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    say_cmd = sub.add_parser("say", help="send a message to a peer agent in this workspace")
+    say_cmd.add_argument("--to", required=True, help="claude, codex, agy, or SESSION:PANE from a message header")
+    say_input = say_cmd.add_mutually_exclusive_group(required=True)
+    say_input.add_argument("--stdin", action="store_true", help="read the message from stdin")
+    say_input.add_argument("--file", metavar="PATH", help="read the message from a file, which is kept")
+    sub.add_parser("status", help="this pane and the registered peers in this workspace")
+    sub.add_parser("wait", help="agy: block until mail arrives in this pane, print it, exit")
+    sub.add_parser("agy-hook", help="agy SessionStart hook: register this pane")
+    deliver_cmd = sub.add_parser("deliver", help="hand a codex pane's waiting mail to its thread")
+    deliver_cmd.add_argument("--pane", help="pane id, default: this pane")
+    sub.add_parser("claude-hook", help="Claude Code hook: deliver this pane's mail")
+    sub.add_parser("codex-hook", help="Codex SessionStart hook: register this pane's thread")
+    sub.add_parser("agterm-hook", help="agterm `on message` hook: hand new mail to a registered codex")
+    args = parser.parse_args(argv)
+    if args.cmd == "claude-hook":
+        return claude_hook()
+    if args.cmd == "codex-hook":
+        return codex_hook()
+    if args.cmd == "agterm-hook":
+        return agterm_hook()
+    if args.cmd == "agy-hook":
+        return agy_hook()
+    try:
+        if args.cmd == "say":
+            result = say(read_message_file(args.file) if args.file is not None else sys.stdin.read(), args.to)
+        elif args.cmd == "status":
+            result = status()
+        elif args.cmd == "wait":
+            return wait_mail()
+        else:
+            sid, pane = own_identity()
+            result = {"delivered": Courier(sid, args.pane or pane).deliver()}
+    except (ChatError, OSError, ValueError, subprocess.SubprocessError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+    print(json.dumps(result))
+    return 1 if "error" in result else 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

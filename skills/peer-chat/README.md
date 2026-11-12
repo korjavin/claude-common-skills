@@ -1,97 +1,62 @@
-# Two-agent chat
+# Peer chat
 
-Let Claude Code and Codex hold a conversation with each other in one agterm split.
+Let coding agents — Claude Code, Codex and AGY (Antigravity CLI) — hold a conversation with each other anywhere in one agterm workspace: another session, a companion, or the other half of a split.
 
-*A simplified version of the setup I run myself, cut down to the part worth publishing. Tested for real, with two agents talking to each other through it, but this is a first version and it will be updated as it gets used.*
-
-## What it does
-
-Two coding agents run side by side in a split session, one per pane, and talk to each other directly. Each sends a single line into the other's composer with `peer-chat.py`, and the reply arrives in its own pane as an ordinary prompt. You watch both halves of the exchange without relaying anything by hand.
-
-The value is disagreement. An agent working alone accepts its own reasoning; a second one with its own context attacks it first, and what comes back is a located disagreement or a checked fact rather than agreement.
-
-That is not only for planning. It works on the code itself: two agents reviewing the same diff find different defects, and each can refute the other's finding before it reaches anyone. It works on a bug, where one traces the failure and the other tries to prove the diagnosis wrong. It works on a long investigation, where splitting the reading keeps them off the same files. Design discussion is one use among those, not the point.
-
-You start it, and you have to name the other agent for the skill to fire. Say "work with codex on the retry bug" or "chat with codex about this" to Claude Code, or "work with claude on it" to Codex, and that agent sends the first message; from there each reply arrives in the other's pane on its own and the exchange continues without you. Both skill files list the phrases they answer to in their `description` field, so read that before inventing your own. Your part after the first message is reading both panes and stepping in when they need a decision that is yours.
-
-## Requirements
-
-agterm 0.24.0 or later, which added `surface cursor`. The recipe refuses to type anything without it. Python 3.10 or later. Claude Code and Codex, each already installed and runnable.
-
-## Setup
-
-1. Copy `peer-chat.py` somewhere on your `PATH`, keeping the executable bit.
-2. Copy `SKILL-claude.md` to `~/.claude/skills/peer-chat/SKILL.md` and `SKILL-codex.md` to `~/.codex/skills/peer-chat/SKILL.md`. Both loaders require the installed file to be named exactly `SKILL.md`, so the suffix here only says which agent the file is for. Each one tells its own agent how to send, how to recognise an incoming message, and what it may not do to the other pane.
-3. Edit both copies so the path they name for `peer-chat.py` matches where you put it.
-4. If you start either agent through a wrapper script rather than as `claude` or `codex`, put that wrapper's name in the same file, as the `--target-command` value the agent should pass when sending to it. Without this the first send refuses, saying the target pane is not running the expected command.
-5. Start Codex so it can tell which pane it is in. Codex strips `AGTERM_SESSION_ID` from tool subprocesses, so start it with `codex -c "shell_environment_policy.set.AGTERM_SESSION_ID=\"$AGTERM_SESSION_ID\""` to copy the current pane's session id into every tool command, adding your normal Codex options to the same command. Without this injection the script can still resolve one matching repository checkout, but it refuses when several sessions share that checkout. If you launch Codex through a wrapper, put the flag in the wrapper and it applies to every pane.
-
-If your `agtermctl` is not on `PATH` under that name, set `AGTERMCTL` to its full path; the script reads that variable and falls back to `agtermctl`.
-
-## Usage
-
-Preferred layout: start each agent in its own agterm terminal (tab) on the same checkout. The script finds the one separate terminal in the caller's checkout running the target agent and types into it. The older layout still works: one split session, Claude Code on the left, Codex on the right. Neither the script nor the skills start an agent, by design.
-
-Ask either agent to talk to the other, and it sends through the script:
-
-```sh
-peer-chat.py --to codex --stdin <<'MSG'
-your message as one paragraph
-MSG
-```
-
-`--to claude` sends the other way. `--session` names a session explicitly; without it the script uses `AGTERM_SESSION_ID` when the caller has one, and otherwise looks for a single session whose target pane is running the expected agent.
-
-Before every send the script confirms that the pane it is about to type into really is running the agent named by `--to`, reading the command from agterm's own view of the pane. It looks for `claude` and `codex`. If you start an agent through a wrapper script, that name is what agterm sees instead, and the send is refused until you say so:
-
-```sh
-peer-chat.py --to claude --target-command cld --stdin <<'MSG'
-your message as one paragraph
-MSG
-```
-
-A path works as well as a bare name; only the last component is compared. `PEER_CHAT_CLAUDE_COMMAND` and `PEER_CHAT_CODEX_COMMAND` do the same thing through the environment, for an agent that cannot easily add a flag. Only the pane being sent to is checked, so a wrapped Claude Code can still send to a plain Codex without any of this.
-
-On success it prints `{"sent": N}` and exits 0. Any refusal or failure exits 1 with the reason on stderr, and an interrupt exits 130.
+Based on umputun's [two-agent-mailbox-chat](https://github.com/umputun/agterm/tree/master/cookbook/two-agent-mailbox-chat) recipe (MIT). Differences: a peer is found through a registry of agent panes in the caller's workspace instead of being the other half of the split, every message carries its sender's `SESSION:PANE` so replies go straight back, and AGY is supported.
 
 ## How it works
 
-The message is typed into the other pane's composer through `agtermctl session type`, which is real typing rather than a paste, so a newline would submit a half-written line. The script collapses the message to one paragraph before sending, which is why the examples above are written as one.
+Messages go into agterm's per-pane mailboxes (`agtermctl msg`, agterm 0.40.0+). Nothing is typed into any composer.
 
-Two checks stand in front of every send, and they refuse for different reasons. Before a single character is typed, the script confirms that the receiving agent is ready. For Claude Code, a visible empty prompt line followed by its lower divider is sufficient even when a background-agent redraw has temporarily moved the terminal cursor elsewhere; otherwise `agtermctl surface cursor` must report the caret at column 2. After typing, the script confirms the line is visible where a message goes before it sends the submit key, so a dialog can be typed at but never answered. A refusal there means the text may still be sitting in the composer, which is why the script stops rather than retrying.
+| Agent | Registers through | Woken by |
+|---|---|---|
+| Claude Code | `claude-hook` (SessionStart, UserPromptSubmit, Stop, `asyncRewake`) | the same hook: mail between turns starts a turn |
+| Codex | `codex-hook` (SessionStart) | agterm's `on message` hook → `agterm-hook` → `codex queue` |
+| AGY | `agy-hook` (SessionStart) | `peer-chat.py wait`, run by agy as a background task; its completion notice starts agy's next turn |
 
-The two agents need different submit keys. Codex takes Tab, which queues the line as a follow-up when it is mid-turn and submits on an idle composer; Return would steer a running turn instead. Claude Code takes Return. Getting this backwards is the single easiest way to break the exchange.
+`say --to codex|agy|claude` picks the single live pane registered as that agent in the caller's workspace; with several it refuses and lists them, and `--to SESSION:PANE` names one exactly. `status` lists the registered peers. Registry and waiter state live in `$TMPDIR/agterm-peer-chat-<uid>/`.
 
-Messages carry a label, `Chat from Claude:` or `Chat from Codex:`, which is what lets the receiving agent read an arriving prompt as the next line of a conversation rather than as a fresh instruction from you. The script adds the label, so the skills tell each agent not to write one.
+AGY cannot be woken by anything outside it, so it must be listening: the skill has it start `peer-chat.py wait` in the background when a chat starts and after each message. If it is not, `say` reports `receiver: "agy-idle"` and the mail waits; tell agy "listen for peer chat". Pickup took from seconds to about two minutes in testing.
 
-`--stdin` is required rather than optional. A message passed as an argument would sit in the process list and have its punctuation mangled by the shell, so the script refuses to accept one that way at all.
+## Setup
 
-The recipe deliberately does not start agents. Deciding that a pane is safe to type a startup command into means guessing from what the pane has drawn, and agterm reports no foreground process for both an idle shell and a program that hides its argv. Every prompt looks different, so that guess is wrong on somebody's machine, and being wrong means typing a command into whatever holds focus.
+1. Link `peer-chat.py` onto your `PATH` (e.g. `~/.local/bin/peer-chat.py`).
+2. Install the skills: this directory as `~/.claude/skills/peer-chat`, `SKILL-codex.md` as `~/.codex/skills/peer-chat/SKILL.md`, `SKILL-agy.md` as `~/.gemini/config/skills/peer-chat/SKILL.md`.
+3. Claude Code: add to each of `hooks.SessionStart`, `hooks.UserPromptSubmit` and `hooks.Stop` in `~/.claude/settings.json`:
+   ```json
+   {"hooks": [{"type": "command", "command": "/full/path/peer-chat.py claude-hook", "asyncRewake": true, "rewakeSummary": "peer chat received", "timeout": 2000000}]}
+   ```
+4. Codex: in `~/.codex/config.toml`, then trust it once in `/hooks`:
+   ```toml
+   [[hooks.SessionStart]]
+   [[hooks.SessionStart.hooks]]
+   type = "command"
+   command = "/full/path/peer-chat.py codex-hook"
+   ```
+   and in `~/.codex/rules/default.rules`, so its sandbox lets sends reach agterm's socket:
+   ```
+   host_executable(name="peer-chat.py", paths=["/full/path/peer-chat.py"])
+   prefix_rule(pattern=["peer-chat.py", "say", "--file"], decision="allow")
+   ```
+   Start Codex with `--no-daemon`; a shared app-server would run hooks with another pane's ids.
+5. AGY: `~/.gemini/config/hooks.json`:
+   ```json
+   {"peer-chat": {"SessionStart": [{"type": "command", "command": "/full/path/peer-chat.py agy-hook", "timeout": 10}]}}
+   ```
+6. agterm: in `~/.config/agterm/hooks.conf`, then `agtermctl hooks reload`:
+   ```
+   on message /full/path/peer-chat.py agterm-hook
+   ```
+
+Agents already running when you install the hooks are not registered until they restart.
 
 ## Limits
 
-**The script types into another pane's composer, and it can submit text you did not write.** The caret check is one-way evidence: a caret at column 2 rules out a draft whose cursor sits after the text, but it cannot tell an empty composer from a draft whose cursor was moved back to the start. In that state the message is inserted in front of your draft and both are submitted together. The check made after typing cannot rule that out either: only the composer's first rendered row is identifiable, so once a message wraps, anything left on a continuation row is invisible to it, in both directions. Do not leave half-written input in a pane you are about to receive a message in.
+- One agterm window: the workspace is looked up in the caller's window.
+- Mailboxes do not survive quitting agterm, closing the pane, or `session restart`.
+- The Claude hook runs in every Claude Code pane, so any mail sent to such a pane (a script's `msg send`, a `--all` broadcast) starts a turn there; non-chat mail is marked `[agterm mailbox, not a peer chat message]`.
+- Codex process inspection uses macOS `sysctl`/`libproc`.
 
-**In practice it does not type into dialogs, but a short window exists where it could.** A dialog already on screen stops the send: the caret must be at rest before a single character goes anywhere. The window is only the moment between that check and the typing, which are separate `agtermctl` calls, so a chooser or trust prompt appearing inside it would receive the message text. Even then the second check fails and the submit key is withheld, so nothing is answered and no choice is confirmed, though characters reaching a picker can move its selection.
+## Tests
 
-**The first exchange may stop and wait for you.** An agent asked to run this script may put up its own approval request before running anything, and neither skill will answer it: a permission prompt carries your authority, so both are told to leave it alone. Until you approve it in that pane, the exchange simply sits there, which looks like a hang rather than a question.
-
-**A busy receiver is waited out for up to five minutes.** Agents mid-turn keep their composer occupied for minutes, so the script retries every two seconds without printing internal retry diagnostics, then gives up with exit 1 and types nothing. Set `PEER_CHAT_WAIT_S` to change the window (e.g. `PEER_CHAT_WAIT_S=40` for the old fail-fast behaviour). A pane left sitting on a dialog therefore costs up to that window before the send fails rather than blocking forever.
-
-**Only the pre-write refusal is retried.** Nothing has been typed at that point, so trying again is safe. Every failure after the text has gone in stops on the first occurrence and is never retried, because retrying there would duplicate a message that is already sitting in the composer.
-
-**A failed send can strand the message in the composer.** When the script types successfully but cannot verify the result, it stops with the text still sitting there. Read the pane before doing anything else: retrying blind either duplicates the message or leaves the old line to be submitted later by hand.
-
-The two directions are not symmetric. Codex is sent Tab, which queues the line while it is busy and costs a running turn nothing. Claude Code has no queue-only key and is sent Return, so a message arriving while it works injects into the turn in progress and can interrupt it. Send to Claude when you have finished, not mid-thought.
-
-In a split it assumes Claude Code on the left and Codex on the right. Each agent's pane is fixed in the script's profiles, so a split arranged the other way sends every message to the wrong pane. A single-pane session is addressed through its only pane, but only after its foreground is confirmed to be the target agent; pass `--pane` to pin a split pane, and then a session with no split is refused.
-
-**Codex cannot see which pane it is in unless you tell it at launch.** It strips `AGTERM_SESSION_ID` from every tool subprocess, and nothing inside its sandbox recovers the value: reading a parent process is blocked outright. Without the launch injection in *Setup*, the script falls back to matching the git checkout, and every worktree of one repository maps to the same checkout, so two sessions open on the same repository are indistinguishable and the send refuses. That refusal is the correct outcome, not a bug, but it is why the injection is worth doing once in your Codex launcher rather than remembering per session.
-
-Session resolution never guesses. With `AGTERM_SESSION_ID` or `--session` it uses that session after checking the target pane. Without `--session` it first looks for exactly one separate terminal (not the caller's own) in the same checkout running the target agent; failing that, it falls back to the caller's split session, and without `AGTERM_SESSION_ID` it matches only sessions in the same checkout as the caller, and refuses on none or several rather than picking a session elsewhere that happens to have the right shape. `--session` takes a full id or any unique prefix of one.
-
-An agent whose launcher leaves no stable name in the pane's command line cannot be targeted at all. `--target-command` matches a name that agterm can actually see, so a wrapper that execs through something anonymous stays unsupported and every send to it refuses.
-
-A reply is not promised. An agent's model can decline to answer a message that arrived perfectly well, and nothing on either side reports that. If an exchange goes quiet, read the other pane rather than waiting.
-
-No transcript is kept. The conversation lives in the two panes and is gone when the session ends.
+`python3 -m unittest test_peer_chat.py`

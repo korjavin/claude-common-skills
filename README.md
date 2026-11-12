@@ -25,7 +25,7 @@ Claude Skills are modular extensions that enhance Claude Code's capabilities. Th
 |---|---|
 | [agterm](./skills/agterm/) | Drives the agterm macOS terminal via `agtermctl`: sessions, panes, overlays, HTML pages, pickers, events |
 | [agterm-ask](./skills/agterm-ask/) | Asks the owner questions as an HTML page with buttons, returns answers as JSON |
-| [peer-chat](./skills/peer-chat/) | Back-and-forth conversation with a Codex/AGY agent in another agterm pane |
+| [peer-chat](./skills/peer-chat/) | Back-and-forth conversation between Claude Code, Codex and AGY anywhere in one agterm workspace, through pane mailboxes |
 | [claude-recap](./skills/claude-recap/) | Recaps what a Claude session in an agterm session was working on |
 
 ### Messaging and other agents
